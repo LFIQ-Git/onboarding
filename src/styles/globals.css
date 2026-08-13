@@ -5,6 +5,8 @@
 
 @theme {
   --font-sans: var(--font-inter), system-ui, sans-serif;
+  /* BRICK family display face, used on the LFIQ Hub cover. */
+  --font-hub: var(--font-manrope), var(--font-inter), system-ui, sans-serif;
 
   --color-blue-50: #f0f9ff;
   --color-blue-100: #e0f2fe;

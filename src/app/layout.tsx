@@ -1,10 +1,24 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import localFont from 'next/font/local';
 import '@/styles/globals.css';
-import { Header } from '@/components/layout/Header';
-import { Footer } from '@/components/layout/Footer';
 
-const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
+// Self-hosted rather than pulled from next/font/google. Google Fonts is
+// fetched at build time, so a network blip against fonts.gstatic.com fails the
+// whole Vercel build. Manrope is the BRICK family display face and is used on
+// the hub cover so this app reads as part of the same fleet.
+const inter = localFont({
+  src: './fonts/inter-latin-var.woff2',
+  variable: '--font-inter',
+  weight: '100 900',
+  display: 'swap',
+});
+
+const manrope = localFont({
+  src: './fonts/manrope-latin-var.woff2',
+  variable: '--font-manrope',
+  weight: '200 800',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'LFIQ Onboarding Manual',
@@ -34,12 +48,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} font-sans antialiased`}>
-        <div className="flex flex-col min-h-screen">
-          <Header />
-          <main className="flex-1 mt-16">{children}</main>
-          <Footer />
-        </div>
+      <body
+        className={`${inter.variable} ${manrope.variable} font-sans antialiased`}
+      >
+        {children}
       </body>
     </html>
   );
