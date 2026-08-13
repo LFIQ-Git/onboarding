@@ -4,7 +4,7 @@ import { GreenMonster } from '@/components/hub/GreenMonster';
 export const metadata: Metadata = {
   title: 'LFIQ Hub',
   description:
-    'Every LFIQ app on one wall. Brick, Back9, Left Field Corp, Tax and the onboarding manual.',
+    'The LFIQ portfolio on one wall. Brick, Back9, Left Field Corp, Onboarding and Tax.',
 };
 
 export default function HomePage() {

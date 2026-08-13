@@ -1,8 +1,6 @@
 import type { Metadata } from 'next';
 import localFont from 'next/font/local';
 import '@/styles/globals.css';
-import { Header } from '@/components/layout/Header';
-import { Footer } from '@/components/layout/Footer';
 
 // Self-hosted rather than pulled from next/font/google. Google Fonts is
 // fetched at build time, so a network blip against fonts.gstatic.com fails the
@@ -53,11 +51,7 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${manrope.variable} font-sans antialiased`}
       >
-        <div className="flex flex-col min-h-screen">
-          <Header />
-          <main className="flex-1 mt-16">{children}</main>
-          <Footer />
-        </div>
+        {children}
       </body>
     </html>
   );
