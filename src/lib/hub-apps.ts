@@ -61,6 +61,15 @@ export const APPS: HubApp[] = [
     note: 'Live',
   },
   {
+    code: 'LIQ',
+    name: 'Left Field IQ',
+    blurb: 'Left Field IQ product site',
+    host: 'lfiq.app',
+    href: 'https://lfiq.app',
+    status: 'live',
+    note: 'Live',
+  },
+  {
     code: 'ONB',
     name: 'Onboarding',
     blurb: 'The manual for the whole LFIQ stack',
