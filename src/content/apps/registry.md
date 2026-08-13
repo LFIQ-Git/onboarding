@@ -34,7 +34,7 @@ Registry provides a centralized hub for deal sourcing and tracking:
 |-----------|------|-------|
 | **Framework** | Next.js 15 | React 19, App Router |
 | **Language** | TypeScript | Full type coverage |
-| **Auth** | Clerk | OAuth via accounts.lfiq.app |
+| **Auth** | Clerk | Shared fleet instance. See [Clerk Authentication](/docs/clerk-auth) |
 | **Database** | Neon (registry schema) | Deals, opportunities, activities, contacts |
 | **Email Ingest** | Cloudflare Worker + Neon | deal@in.lfiq.app forwarding |
 | **Deployment** | Vercel | Auto-deploy on main |
@@ -53,11 +53,13 @@ npm run dev
 
 | Variable | Required? | Purpose |
 |----------|-----------|---------|
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes | Clerk OAuth |
-| `CLERK_SECRET_KEY` | Yes | Session signing |
-| `DATABASE_URL` | Yes | Neon connection (registry schema) |
-| `NEXTAUTH_SECRET` | Yes | Auth.js session encryption |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes | Clerk publishable key. `BRICK_CLERK_PUBLISHABLE_KEY` is the fallback name |
+| `CLERK_SECRET_KEY` | Yes | Clerk secret key. `BRICK_CLERK_SECRET_KEY` is the fallback name |
+| `BRICK_AUTH_DISABLED` | No | Local dev only. Set `true` in `.env.local` |
+| `DATABASE_URL` | Yes | Neon connection, pooled (registry schema). Never use `DATABASE_URL_UNPOOLED` here |
 | `DEAL_INGEST_SECRET` | Yes | Email forwarding validation |
+
+Do not pass the Clerk keys as module-level options to `clerkMiddleware`. Clerk reads them from the environment, and passing them explicitly breaks in the Edge Runtime.
 
 Pull from Vercel:
 ```bash
@@ -116,12 +118,12 @@ The `registry` schema contains four main tables:
 # Log in to Cloudflare Dashboard
 # Workers > Logs > Filter for deal-ingest
 
-# Verify secret is set
-gcloud secrets versions access latest --secret=registry-ingest-secret --project=brickston-v2
+# Verify the secret is set on the Vercel project
+vercel env ls
 
 # Test ingest endpoint
 curl -X POST https://registry.lfiq.app/api/ingest/email \
-  -H "X-Forwarding-Secret: $(gcloud secrets versions access latest --secret=registry-ingest-secret --project=brickston-v2)" \
+  -H "X-Forwarding-Secret: $DEAL_INGEST_SECRET" \
   -H "Content-Type: application/json" \
   -d '{
     "to": "deal@in.lfiq.app",
@@ -140,8 +142,7 @@ curl -X POST https://registry.lfiq.app/api/ingest/email \
 # Ensure required fields are filled: address, purchase price, expected return
 
 # Check database connection
-psql -h ep-tiny-lab-akrddwgy.us-west-2.neon.tech \
-  -U command neondb -c "SELECT 1 FROM registry.deals LIMIT 1;"
+psql "$DATABASE_URL" -c "SELECT 1 FROM registry.deals LIMIT 1;"
 
 # Verify user has write permission
 # Contact ops if receiving 403
@@ -152,8 +153,9 @@ psql -h ep-tiny-lab-akrddwgy.us-west-2.neon.tech \
 **Cause:** PropertyRadar API key expired, quota exceeded, or integration disabled  
 **Fix:**
 ```bash
-# Check PropertyRadar API key
-gcloud secrets versions access latest --secret=propertyradar-api-key --project=brickston-v2
+# PropertyRadar is a gated paid adapter owned by Stacks, not Registry.
+# Check the key on the Stacks Vercel project, not here
+vercel env ls
 
 # Verify quota hasn't exceeded
 # Log in to PropertyRadar dashboard at https://portal.propertyradar.com

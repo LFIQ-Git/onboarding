@@ -48,14 +48,14 @@ export const docNav: DocSection[] = [
       { href: '/docs/neon-database', label: 'Neon Database' },
       { href: '/docs/vercel-deployment', label: 'Vercel Deployment' },
       { href: '/docs/fly-io-backend', label: 'Fly.io Backend' },
-      { href: '/docs/gcp-cloud-run', label: 'GCP Cloud Run' },
+      { href: '/docs/gcp-cloud-run', label: 'GCP (Wind-Down)' },
       { href: '/docs/clerk-auth', label: 'Clerk Authentication' },
     ],
   },
   {
     title: 'Workflows',
     items: [
-      { href: '/docs/data-ingestion', label: 'Data Ingestion (14 sources)' },
+      { href: '/docs/data-ingestion', label: 'Data Ingestion' },
       { href: '/docs/property-onboarding', label: 'Property Onboarding' },
       { href: '/docs/deal-sourcing', label: 'Deal Sourcing' },
       { href: '/docs/daily-briefing', label: 'Daily Briefing Generation' },

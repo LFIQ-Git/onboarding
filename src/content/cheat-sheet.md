@@ -13,18 +13,18 @@ One-page quick reference for getting productive in the LFIQ stack. Complete your
 | Registry | https://registry.lfiq.app | Deal tracking, opportunities, activities |
 | Stacks | https://stacks.lfiq.app | SF sourcing pipeline, dossier, PropertyRadar |
 | Sticks | https://sticks.lfiq.app | Personal AI assistant |
-| Marketing Site | https://leftfieldiq.app | Product overview, investor materials |
+| Marketing Site | https://leftfieldiq.com | Product overview, investor materials |
 
 ## Database & Secrets
 
 | Item | Value/Location | Notes |
 |------|--------|-------|
-| **Neon Database** | Endpoint: `ep-tiny-lab-akrddwgy.us-west-2.neon.tech` | Schemas: portfolio, items, gdm, market, registry, stacks, collect, repair, public, semantic |
-| **Clerk Auth** | https://accounts.lfiq.app | Shared OAuth broker for all apps |
-| **GCP Project** | `brickston-v2` (us-west-1) | Cloud Run, Secrets, Scheduler |
-| **Vercel Team** | LFIQ (6 projects deployed) | Hub, Intel, Command, Keystone, Registry, Stacks, Sticks |
-| **Fly.io** | `brickston-backend` (app) | Command backend, Neon proxy |
-| **Secrets Manager** | GCP Secret Manager (`brickston-v2`) | intel-neon-database-url, items-hub-database-url, command-database-url-direct, etc. |
+| **Neon Database** | Endpoint: `ep-tiny-lab-akrddwgy.us-west-2.neon.tech` | One database, `neondb`. Schemas: portfolio, items, gdm, market, registry, stacks, collect, repair, public, semantic |
+| **Clerk Auth** | One shared instance across the BRICK apps | Social login only. Sign-in domain not verified, confirm with Justin. Sticks is the exception and runs NextAuth |
+| **GCP Project** | `brickston-v2` | Wound down. Billing disabled, Cloud Scheduler API dead |
+| **Vercel Team** | LFIQ (`team_N2zeS1e4gX0Wljbp0aKwkzxb`) | Hub, Intel, Command and its sub-apps, Keystone, Registry, Stacks, Sticks |
+| **Fly.io** | `brickston-backend`, `brick-cron`, `brick-mcp-server`, `pkm-mcp` | Command backend, batch jobs, MCP servers |
+| **Secrets** | Vercel environment, Fly app secrets, macOS Keychain | Names only in docs. Values never in a repo |
 
 ## Local Setup (60 seconds)
 
@@ -38,35 +38,31 @@ npm ci
 # 2. Link to Vercel and pull environment variables
 vercel link --project hub
 vercel env pull
+# This is the whole secret story for local dev. Vercel env is where the values live.
 
-# 3. Pull GCP secrets
-gcloud auth login
-gcloud secrets versions access latest --secret=intel-neon-database-url --project=brickston-v2
-# Save to ~/.pkm/secrets.json or app .env.local
-
-# 4. Verify local development
+# 3. Verify local development
 npm run dev
 # Visit http://localhost:3000 (or 3001, 3002, etc. depending on app)
 
-# 5. Run health check
+# 4. Run health check
 curl http://localhost:3000/api/health
 ```
 
 ## Key Logins & Credentials
 
 ### Clerk Login
-- **Email:** justin@leftfieldinv.com (or team member email)
-- **Provider:** Google OAuth or Microsoft (via accounts.lfiq.app)
-- **Two-factor:** Enabled for all accounts
+- **Provider:** Google or Microsoft only. No password login anywhere in the fleet
+- **Sign-up:** Restricted to an allowlist of company domains. You must be invited before you can sign in
+- **Access:** Clerk org role decides which apps you see. `org:admin` gets everything, `org:member` gets Command
 
 ### Neon Database Access
 - **Endpoint:** `ep-tiny-lab-akrddwgy.us-west-2.neon.tech`
-- **Port:** 5432 (local proxy: 5433)
+- **Port:** 5432. There is no local proxy, Cloud SQL was deleted
 - **Auth:** Neon roles (intel, command, pkm, gdm_extractor, market_scraper)
-- **How to connect:** Use DATABASE_URL from GCP secrets, not raw credentials
+- **How to connect:** Use the `DATABASE_URL` pulled from Vercel, not raw credentials
 
 ### Anthropic API (Claude)
-- **Key location:** GCP Secret Manager (`anthropic-api-key`)
+- **Key name:** `ANTHROPIC_API_KEY`, set in Vercel environment and Fly app secrets
 - **Apps using it:** Hub (chat), Keystone (automation)
 - **Rate limits:** Standard Claude API tiers
 
@@ -89,9 +85,8 @@ curl http://localhost:3000/api/health
 # Pull latest from Vercel
 vercel env pull
 
-# If that fails, manually export:
-export NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=$(gcloud secrets versions access latest --secret=clerk-publishable-key --project=brickston-v2)
-export CLERK_SECRET_KEY=$(gcloud secrets versions access latest --secret=clerk-secret-key --project=brickston-v2)
+# Confirm the app is linked to the right project first
+cat .vercel/project.json
 
 # Then restart
 npm run dev
@@ -111,21 +106,23 @@ psql -h ep-tiny-lab-akrddwgy.us-west-2.neon.tech -U intel neondb -c "SELECT 1;"
 **Symptom:** 403 errors, user cannot authenticate despite valid Clerk session  
 **Fix:**  
 ```bash
-# Clear browser cookies for accounts.lfiq.app and app domain
+# Clear browser cookies for the app domain and the Clerk domain
 # In DevTools > Application > Cookies > Delete __session
 
 # Log out and log back in via Clerk UI
-# Verify CLERK_SECRET_KEY matches current GCP secret version
+# Verify CLERK_SECRET_KEY matches the current Vercel value
 vercel env pull
 ```
 
+Note: production must use a `pk_live_` publishable key. A `pk_test_` key points at a throwaway development Clerk instance and will not recognize your account.
+
 ## Learning Path (5 steps)
 
-1. **Read the Architecture Overview** (10 min) — Understand the 8-app family, 10 schemas, and data flow
-2. **Complete Local Setup** (20 min) — Clone, install, link Vercel, pull secrets
-3. **Watch Hub Demo** (5 min) — See the entry point in action
-4. **Explore Intel** (15 min) — View the inbox, understand how data arrives from 14 sources
-5. **Open a PR and Deploy** (15 min) — Make a small change, push to a branch, deploy via Vercel
+1. **Read the Architecture Overview** (10 min): Understand the 8-app family, 10 schemas, and data flow
+2. **Complete Local Setup** (20 min): Clone, install, link Vercel, pull environment variables
+3. **Watch Hub Demo** (5 min): See the entry point in action
+4. **Explore Intel** (15 min): View the inbox, understand how data arrives from the 27 registered sources
+5. **Open a PR and Deploy** (15 min): Make a small change, push to a branch, deploy via Vercel
 
 ## Common Commands
 

@@ -13,9 +13,9 @@ Complete checklist of tools required to develop on the LFIQ platform. Install th
 | npm | Package manager | Node.js included | 10.x+ |
 | Vercel CLI | Deploy, link projects | npm | 35.0+ |
 | Flyctl | Fly.io deployment | Homebrew | 0.2+ |
-| Docker Desktop | Optional, local Postgres | Docker.com | 4.20+ |
+| colima | Docker daemon, required for Fly builds | Homebrew | Latest |
 | mise | Version manager | Homebrew | Latest |
-| gcloud | GCP CLI | Google Cloud SDK | Latest |
+| gcloud | GCP CLI, rarely needed | Google Cloud SDK | Latest |
 
 ## Claude Code (Recommended but Optional)
 
@@ -187,57 +187,33 @@ flyctl auth login
 # Browser opens, authenticate with Fly.io account
 ```
 
-## Docker Desktop (Optional)
+## colima (Docker daemon)
 
-Docker is optional but useful for:
-- Running a local Postgres instance (instead of connecting to Neon)
-- Testing deployment containers locally
+Fly builds run locally with `--local-only`, so a Docker daemon has to be up before any `flyctl deploy`. Docker Desktop is not what the team uses; the daemon is colima. Without it, `docker info` fails and flyctl reports the daemon missing.
 
 ### Installation
 
-1. Download from https://www.docker.com/products/docker-desktop
-2. Install and launch Docker Desktop
-3. Grant permission when prompted
+```bash
+brew install colima docker
+```
 
 ### Verification
 
 ```bash
-docker --version
-# Expected: Docker version 4.20.0 or later
+colima start
+docker info | head -5
 ```
 
-### Optional: Set up local Postgres
-
-```bash
-# Run a Postgres container (useful for offline development)
-docker run --name postgres-dev \
-  -e POSTGRES_PASSWORD=postgres \
-  -p 5432:5432 \
-  -d postgres:15
-
-# Connect
-psql -h localhost -U postgres -c "SELECT 1;"
-```
+You do not need a local Postgres. Every app connects straight to Neon. Cloud SQL was deleted, so there is no proxy to run and nothing listens on 5433.
 
 ## gcloud (Google Cloud SDK)
 
-gcloud is the CLI for Google Cloud Platform. Required for pulling secrets from GCP Secret Manager.
+gcloud is the CLI for Google Cloud Platform. **You will rarely need it.** Billing is disabled on the `brickston-v2` project as part of a wind-down, which means the Cloud Scheduler API refuses every call. Application secrets live in Vercel environment settings, Fly app secrets, and the macOS Keychain, not in a GCP console you have to authenticate against. Install it only if you are working on one of the residual GCP workloads. See [GCP Cloud Run](/docs/gcp-cloud-run).
 
 ### Installation via Homebrew
 
 ```bash
 brew install --cask google-cloud-sdk
-```
-
-### Installation via Direct Download
-
-```bash
-# Download macOS release
-curl https://sdk.cloud.google.com > install.sh
-bash install.sh --usage-reporting=false --path-update=true
-
-# Activate gcloud in current shell
-. "$HOME/google-cloud-sdk/path.zsh.inc"
 ```
 
 ### Verification
@@ -250,11 +226,8 @@ gcloud --version
 ### Post-Installation
 
 ```bash
-gcloud auth login
-# Browser opens, log in with your GCP account
-
-gcloud config set project brickston-v2
-# Sets default project for gcloud commands
+gcloud auth login --launch-browser
+# The out-of-band flow is deprecated and will fail. Use --launch-browser.
 ```
 
 ## Text Editor / IDE (Your Choice)
@@ -279,12 +252,12 @@ While not required, a good editor makes development faster:
 
 ### Extensions (for VS Code or Cursor)
 
-- **TypeScript Vue Plugin** — for .vue files
-- **Prettier** — code formatting
-- **ESLint** — linting
-- **GitLens** — Git history
-- **Neon CLI** — Neon database connection
-- **PostCSS IntelliSense** — CSS module hints
+- **TypeScript Vue Plugin**: for .vue files
+- **Prettier**: code formatting
+- **ESLint**: linting
+- **GitLens**: Git history
+- **Neon CLI**: Neon database connection
+- **PostCSS IntelliSense**: CSS module hints
 
 ## macOS System Requirements
 
@@ -322,14 +295,14 @@ vercel --version
 # 6. Flyctl
 flyctl version
 
-# 7. gcloud
-gcloud --version
+# 7. colima (needed for Fly deploys)
+colima version
 
-# 8. Docker (optional)
-docker --version
-
-# 9. mise
+# 8. mise
 mise --version
+
+# 9. gcloud (only if you work on the residual GCP workloads)
+gcloud --version
 ```
 
 All outputs should show version numbers (no "command not found" errors).
@@ -365,11 +338,12 @@ mise use python@3.11
 python --version
 ```
 
-### Issue 4: "gcloud auth fails in CI/CD"
+### Issue 4: "flyctl reports the Docker daemon is missing"
 **Fix:**
 ```bash
-# Authenticate with service account instead
-gcloud auth activate-service-account --key-file=/path/to/key.json
+colima start
+docker info | head -5
+# Then retry the flyctl deploy
 ```
 
 ## Next Steps

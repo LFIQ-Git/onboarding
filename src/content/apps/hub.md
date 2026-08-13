@@ -21,7 +21,7 @@ Hub is a unified gateway into the LFIQ ecosystem. New users land on Hub, authent
 | **Production** | https://hub.lfiq.app | Live, auto-deploy on git push to main | Vercel |
 | **Preview** | https://hub-branch.lfiq.app | Auto-deploy on PR | Vercel |
 | **Local Dev** | http://localhost:3000 | Via `npm run dev` | Local machine |
-| **Staging** | (none, use preview) | — | — |
+| **Staging** | (none, use preview) | n/a | n/a |
 
 ## Tech Stack
 
@@ -30,10 +30,10 @@ Hub is a unified gateway into the LFIQ ecosystem. New users land on Hub, authent
 | **Framework** | Next.js 15 | React 19, App Router |
 | **Language** | TypeScript | Full type coverage |
 | **Styling** | Tailwind CSS | Utility-first CSS |
-| **Auth** | Clerk + Cloud Run proxy | OAuth via accounts.lfiq.app |
-| **Backend** | Cloud Run | Python FastAPI, OIDC token validation |
+| **Auth** | Clerk | Social login only, Google or Microsoft. See [Clerk Authentication](/docs/clerk-auth) |
+| **Backend** | Fly `brickston-backend` | Python FastAPI |
 | **Database** | Neon (read-only) | Portfolio schema, read access |
-| **Chat Proxy** | Cloud Run | Anthropic API (Claude models) |
+| **Chat Proxy** | Next.js API routes proxying `brickston-backend` | Anthropic API (Claude models) |
 | **Deployment** | Vercel | Automatic on git push |
 
 ## Local Development
@@ -66,14 +66,16 @@ Changes to `.tsx` and `.ts` files auto-reload. No manual restart needed.
 
 | Variable | Required? | Default | Purpose |
 |----------|-----------|---------|---------|
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes | — | Clerk OAuth client ID |
-| `CLERK_SECRET_KEY` | Yes | — | Clerk signing key (backend only) |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes | n/a | Clerk publishable key. `BRICK_CLERK_PUBLISHABLE_KEY` is the fallback name |
+| `CLERK_SECRET_KEY` | Yes | n/a | Clerk secret key (server only). `BRICK_CLERK_SECRET_KEY` is the fallback name |
+| `BRICK_CLERK_ORGANIZATION_ID` | Yes | n/a | Clerk org whose role decides app access |
 | `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | No | `/sign-in` | Sign-in page path |
-| `NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL` | No | `/` | Redirect after login |
-| `NEXT_PUBLIC_API_URL` | Yes | — | Backend API base (Cloud Run) |
-| `ANTHROPIC_API_KEY` | Yes | — | Claude API key |
-| `HUB_CHAT_PROXY_SA_JSON` | Yes | — | Cloud Run invoker SA (base64) |
-| `DATABASE_URL` | No | — | Neon connection (optional, read-only) |
+| `BRICK_AUTH_DISABLED` | No | n/a | Local dev only. Set `true` to bypass the Clerk gate |
+| `BRICKSTON_BACKEND_URL` | Yes | n/a | Backend API base (Fly `brickston-backend`) |
+| `BRICKSTON_SCHEDULER_SECRET` | Yes | n/a | Shared secret forwarded on backend proxy calls |
+| `ANTHROPIC_API_KEY` | Yes | n/a | Claude API key |
+| `ITEMS_HUB_DATABASE_URL` | Yes | n/a | Neon connection used by `/admin/users` and `/status` |
+| `BRICK_HUB_MCP_ADMIN_SECRET` | Yes | n/a | Guards the machine-facing admin user routes |
 
 Pull from Vercel:
 ```bash
@@ -93,7 +95,7 @@ env | grep ANTHROPIC
 2. Clerk middleware checks for session token
 3. If not authenticated, redirect to `/sign-in`
 4. User clicks "Sign in with Google" or "Sign in with Microsoft"
-5. Redirect to accounts.lfiq.app (Clerk tenant)
+5. Redirect to the hosted Clerk sign-in (exact domain not verified, confirm with Justin)
 6. OAuth provider login (Google or Microsoft)
 7. Redirect back to hub.lfiq.app with session token
 8. User lands on `/` (document index)
@@ -102,7 +104,7 @@ env | grep ANTHROPIC
 1. User opens chat panel on right sidebar
 2. User types a question (e.g., "Show me vacancy rates for 123 Main")
 3. Hub frontend sends POST to `/api/brick-chat/stream`
-4. Backend Cloud Run service validates OIDC token
+4. The route strips the inbound session JWT and forwards `X-Scheduler-Secret` plus `X-Brick-Operator-Email` to `brickston-backend` on Fly
 5. Request forwarded to Anthropic API with prompt + context
 6. Claude responds with text (or images)
 7. Response streamed back to frontend, displayed in chat UI
@@ -144,14 +146,15 @@ npm run dev
 
 ### Issue 3: "Chat button shows 'Error' state"
 **Symptom:** Brick chat panel shows red error icon  
-**Cause:** Cloud Run service down, Anthropic API key invalid, or OIDC token expired  
+**Cause:** `brickston-backend` is down, the Anthropic API key is invalid, or the scheduler secret drifted between Hub and the backend  
 **Fix:**
 ```bash
-# Check Cloud Run status
-gcloud run services describe hub-chat-proxy --project=brickston-v2
+# Check the backend on Fly
+flyctl status --app brickston-backend
+flyctl logs --app brickston-backend
 
-# Check Anthropic API key is set
-grep ANTHROPIC_API_KEY .env.local
+# Check the local env has both the key and the shared secret
+grep -E "ANTHROPIC_API_KEY|BRICKSTON_SCHEDULER_SECRET" .env.local
 
 # Clear browser cache and retry
 # DevTools > Application > Clear Site Data
@@ -168,19 +171,16 @@ psql -h ep-tiny-lab-akrddwgy.us-west-2.neon.tech -U intel neondb -c "SELECT 1;"
 # Then reload page in browser
 ```
 
-### Issue 5: "CORS error when calling /api/brick-chat/stream"
-**Symptom:** Browser console shows "Cross-Origin Request Blocked"  
-**Cause:** Cloud Run CORS headers misconfigured  
+### Issue 5: "401 or 403 when calling /api/brick-chat/stream"
+**Symptom:** The chat request fails with an auth error even though you are signed in  
+**Cause:** A valid Clerk browser session does not authorize the backend call. The proxy route has to strip the inbound `Authorization` header and attach the shared scheduler secret instead  
 **Fix:**
 ```bash
-# Check Cloud Run service configuration
-gcloud run services describe hub-chat-proxy \
-  --project=brickston-v2 \
-  --format='value(status.conditions[0].message)'
+# Confirm the secret matches on both sides
+flyctl secrets list --app brickston-backend | grep -i scheduler
+# Compare the name against the Hub Vercel env, then rotate together if they drifted
 
-# Verify headers are set
-curl -i https://hub-chat-proxy.lfiq.app/health
-# Should include: Access-Control-Allow-Origin: https://hub.lfiq.app
+flyctl logs --app brickston-backend
 ```
 
 ## Common Tasks
@@ -302,17 +302,16 @@ vercel logs --follow
 # Filter by event type (sign-in, sign-out, error)
 ```
 
-### View Cloud Run Logs (Chat Proxy)
+### View Backend Logs (Chat)
 ```bash
-gcloud run logs read hub-chat-proxy \
-  --project=brickston-v2 \
-  --limit=50
+flyctl logs --app brickston-backend
 ```
 
 ## Related Documentation
 
 - **Getting Started:** Setup, Logins, Install Tools
 - **Architecture:** System topology, auth model, deployment
-- **Brick Chat Proxy:** Details on Cloud Run chat service
+- [Clerk Authentication](/docs/clerk-auth)
+- [Fly.io Backend](/docs/fly-io-backend)
 - **Clerk Documentation:** https://clerk.com/docs
 - **Next.js 15:** https://nextjs.org/docs

@@ -25,9 +25,11 @@ The marketing site is LFIQ's storefront for investors, LPs, partners, and prospe
 
 | Environment | URL | Status | Platform |
 |-------------|-----|--------|----------|
-| **Production** | https://leftfieldiq.app | Live | Vercel |
-| **Preview** | https://leftfieldiq-branch.lfiq.app | Auto-deploy on PR | Vercel |
+| **Production** | https://leftfieldiq.com | Live | Vercel |
+| **Preview** | Vercel preview URL per branch | Auto-deploy on PR | Vercel |
 | **Local Dev** | http://localhost:3007 | Via `npm run dev` | Local machine |
+
+The site is `leftfieldiq.com`. `leftfieldiq.app` does not resolve; do not link to it.
 
 ## Tech Stack
 
@@ -82,7 +84,7 @@ apps/leftfieldiq-site/
 
 | Variable | Required? | Purpose |
 |----------|-----------|---------|
-| `NEXT_PUBLIC_SITE_URL` | No | Site URL for og:url tags (defaults to leftfieldiq.app) |
+| `NEXT_PUBLIC_SITE_URL` | No | Site URL for og:url tags (defaults to leftfieldiq.com) |
 | `SENDGRID_API_KEY` | No | Email for contact form (optional) |
 
 Pull from Vercel:
@@ -257,10 +259,10 @@ vercel deploy --prod
 ## Content Guidelines
 
 ### Tone & Voice
-- **Professional but approachable** — Not stuffy, not overly casual
-- **Real estate operator voice** — Speak like investors, not marketers
-- **No jargon** — Explain concepts clearly
-- **Specific over vague** — "9,000+ properties analyzed" not "many properties"
+- **Professional but approachable**: Not stuffy, not overly casual
+- **Real estate operator voice**: Speak like investors, not marketers
+- **No jargon**: Explain concepts clearly
+- **Specific over vague, but only with a figure you can source**: never invent a count. If you do not have the number, cut the sentence
 
 ### Images
 - **Team photos:** Professional headshots (500x500px minimum, JPEG or PNG)
@@ -271,14 +273,14 @@ vercel deploy --prod
 ### Links
 - **Internal links:** Use relative paths (/about, /careers)
 - **External links:** Use full URLs (https://example.com)
-- **No dead links** — Verify all URLs are current
+- **No dead links**: Verify all URLs are current
 
 ## SEO & Meta Tags
 
 The site automatically generates meta tags for:
-- `<title>` — Page title (defaults to "LFIQ | Real Estate Powered by AI")
-- `og:title`, `og:description`, `og:image` — Social media sharing
-- `meta charset`, `viewport` — Mobile-friendly, encoding
+- `<title>`: Page title (defaults to "LFIQ | Real Estate Powered by AI")
+- `og:title`, `og:description`, `og:image`: Social media sharing
+- `meta charset`, `viewport`: Mobile-friendly, encoding
 
 To customize, edit `app/layout.tsx`:
 

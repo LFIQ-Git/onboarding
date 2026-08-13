@@ -32,9 +32,9 @@ Stacks focuses on SF multifamily deal sourcing:
 |-----------|------|-------|
 | **Framework** | Next.js 15 | React 19, App Router |
 | **Language** | TypeScript | Full type coverage |
-| **Auth** | Clerk | OAuth via accounts.lfiq.app |
-| **Database** | Neon (stacks schema) | Properties, dossiers, market data |
-| **Property Data** | PropertyRadar API | SF property records, distress indicators |
+| **Auth** | Clerk | Shared fleet instance. Production must use a `pk_live_` key. See [Clerk Authentication](/docs/clerk-auth) |
+| **Database** | Neon (stacks schema) | Properties, dossiers, market data. Keyed on APN |
+| **Property Data** | PropertyRadar API | SF property records, distress indicators. Gated paid adapter, excluded from cron |
 | **Maps** | Mapillary (optional) | Street-level imagery |
 | **Deployment** | Vercel | Auto-deploy on main |
 
@@ -52,11 +52,14 @@ npm run dev
 
 | Variable | Required? | Purpose |
 |----------|-----------|---------|
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes | Clerk OAuth |
-| `CLERK_SECRET_KEY` | Yes | Session signing |
+| `BRICK_CLERK_PUBLISHABLE_KEY` | Yes | Clerk publishable key. `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` also works |
+| `BRICK_CLERK_SECRET_KEY` | Yes | Clerk secret key. `CLERK_SECRET_KEY` also works |
+| `BRICK_AUTH_DISABLED` | No | Local dev only. Stacks ships with the gate enabled, so local API routes 401 against production keys until you set this |
 | `DATABASE_URL` | Yes | Neon connection (stacks schema) |
-| `PROPERTYRADAR_API_KEY` | Yes | PropertyRadar data access |
+| `PROPERTYRADAR_API_KEY` | Yes | PropertyRadar data access. Billing-gated |
 | `NEXT_PUBLIC_MAPILLARY_API_KEY` | No | Street imagery (optional) |
+
+Stacks refuses to build for production unless the publishable key starts with `pk_live_`.
 
 Pull from Vercel:
 ```bash
@@ -68,34 +71,34 @@ vercel env pull
 ### Property Search
 
 Search properties by:
-- **Address or APN** — Direct lookup
-- **Cap rate** — Filter by expected return (e.g., 5% - 7%)
-- **Distress score** — Filter by probability of foreclosure (0-100)
-- **Price range** — Purchase price or estimated value
-- **Ownership type** — Individual, corporate, etc.
-- **Neighborhoods** — Filter by SF district or ZIP code
+- **Address or APN**: Direct lookup
+- **Cap rate**: Filter by expected return (e.g., 5% - 7%)
+- **Distress score**: Filter by probability of foreclosure (0-100)
+- **Price range**: Purchase price or estimated value
+- **Ownership type**: Individual, corporate, etc.
+- **Neighborhoods**: Filter by SF district or ZIP code
 
 ### Distress Scoring
 
 Properties are automatically scored (0-100) based on:
-- **Late payments** — Mortgage delinquency indicators
-- **Liens** — Tax liens, judgment liens, HOA liens
-- **Price trends** — Recent sales compared to market baseline
-- **Ownership duration** — Properties owned < 5 years at higher risk
-- **Mortgage info** — LTV ratio, recent refinancing
+- **Late payments**: Mortgage delinquency indicators
+- **Liens**: Tax liens, judgment liens, HOA liens
+- **Price trends**: Recent sales compared to market baseline
+- **Ownership duration**: Properties owned < 5 years at higher risk
+- **Mortgage info**: LTV ratio, recent refinancing
 
 Properties with score > 70 are flagged as "High Distress."
 
 ### Dossier
 
 Each property has a detailed dossier including:
-- **Comparables** — Similar properties (same ZIP, same unit count ±20%)
-- **Rent trends** — Historical rent for this property and neighborhood
-- **Market context** — Neighborhood median rent, vacancy, rent growth
-- **Ownership history** — Recent transfers, previous owners
-- **Financials** — Estimated NOI, cap rate, value
-- **Zoning** — Land use, density restrictions, height limits
-- **Photos** — Mapillary street-level imagery (if available)
+- **Comparables**: Similar properties (same ZIP, same unit count ±20%)
+- **Rent trends**: Historical rent for this property and neighborhood
+- **Market context**: Neighborhood median rent, vacancy, rent growth
+- **Ownership history**: Recent transfers, previous owners
+- **Financials**: Estimated NOI, cap rate, value
+- **Zoning**: Land use, density restrictions, height limits
+- **Photos**: Mapillary street-level imagery (if available)
 
 ## Key Flows
 
@@ -163,8 +166,7 @@ The `stacks` schema contains:
 **Fix:**
 ```bash
 # Warm Neon connection
-psql -h ep-tiny-lab-akrddwgy.us-west-2.neon.tech \
-  -U command neondb -c "SELECT 1 FROM stacks.properties LIMIT 1;"
+psql "$DATABASE_URL" -c "SELECT 1 FROM stacks.properties LIMIT 1;"
 
 # Check if PropertyRadar API is down
 # https://status.propertyradar.com
@@ -174,19 +176,16 @@ psql -h ep-tiny-lab-akrddwgy.us-west-2.neon.tech \
 
 ### Issue 3: "Distress score not calculating"
 **Symptom:** New properties show "Score: N/A" instead of numeric value  
-**Cause:** Scoring job failed, missing data from PropertyRadar, or schema mismatch  
+**Cause:** The PropertyRadar pull is gated on billing, so the underlying distress fields never arrived. PropertyRadar is deliberately excluded from the free adapter set and does not run on a cron  
 **Fix:**
 ```bash
-# Manually re-run distress scoring job
-gcloud run jobs execute stacks-distress-scorer --project=brickston-v2
-
-# Check job logs
-gcloud run logs read stacks-distress-scorer --project=brickston-v2 --limit=50
-
-# Verify properties table has required fields
-psql -h ep-tiny-lab-akrddwgy.us-west-2.neon.tech \
-  -U command neondb \
+# Verify the properties table actually has the source fields
+psql "$DATABASE_URL" \
   -c "SELECT id, address, distress_score FROM stacks.properties LIMIT 5;"
+
+# If the source fields are null, check the PropertyRadar billing gate before
+# looking at the scoring code. The score is a floor computed from PropertyRadar
+# data, so no data means no score.
 ```
 
 ## Common Tasks
