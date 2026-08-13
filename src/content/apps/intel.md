@@ -1,11 +1,11 @@
 # Intel App Guide
 
-Intel is the data convergence hub for LFIQ. It ingests observations from 14 external sources, enriches them with a knowledge graph, and surfaces them through an inbox interface and semantic search.
+Intel is the data convergence hub for LFIQ. It ingests observations from a registry of 27 external sources, enriches them with a knowledge graph, and surfaces them through an inbox interface and semantic search.
 
 ## What It Does
 
 Intel aggregates operational intelligence from across the LFIQ ecosystem:
-- **Observations inbox:** New data points from M365, Granola, Smartsheet, PropertyRadar, DataTree, SF civic, Rent Board, Power BI, Box, Pinecone, Anthropic, Cartesia, Cloudflare, GitHub
+- **Observations inbox:** New data points from M365 (both tenants), Granola, Zoom, Smartsheet, SharePoint report imports, SF Open Data, Craigslist, Power BI, connected file accounts, market news, and the Command portfolio scans
 - **Knowledge graph:** Edges linking observations to properties, deals, contacts, and market conditions
 - **Semantic search:** Embeddings stored in Pinecone for similarity search across observations
 - **Data enrichment:** Automatic linking of related observations, resolution of references
@@ -32,11 +32,11 @@ Intel aggregates operational intelligence from across the LFIQ ecosystem:
 |-----------|------|-------|
 | **Framework** | Next.js 15 | React 19, App Router |
 | **Language** | TypeScript | Full type coverage |
-| **Auth** | Auth.js + Neon Auth | Session-based, database RLS |
-| **Database** | Neon (items schema) | 100k+ observations, knowledge graph |
+| **Auth** | Clerk | `sessionClaims.apps` gate in middleware, plus in-route checks. `/api/*` is public in middleware |
+| **Database** | Neon (items schema) | Observations, knowledge graph |
 | **Search** | Pinecone | Vector embeddings for semantic search |
-| **External APIs** | 14 sources | M365, Granola, Smartsheet, PropertyRadar, etc. |
-| **Ingest Pipeline** | Cloud Run jobs | Nightly/hourly sync from each source |
+| **External APIs** | 27 registered sources | 24 live, 3 down (Yardi, DocuSign, a retired local file drop) |
+| **Ingest Pipeline** | Vercel crons in `vercel.json` | One cron per route, schedules from every 15 min to daily |
 | **Deployment** | Vercel | Auto-deploy on main |
 
 ## Local Development
@@ -53,9 +53,12 @@ npm run dev
 
 | Variable | Required? | Purpose |
 |----------|-----------|---------|
-| `DATABASE_URL` | Yes | Neon connection (items schema, intel role) |
-| `NEXTAUTH_SECRET` | Yes | Session encryption key |
-| `NEXTAUTH_URL` | No | Callback URL (defaults to http://localhost:3001) |
+| `DATABASE_URL` | Yes | Neon connection, pooled (items schema, intel role) |
+| `DATABASE_URL_UNPOOLED` | No | Direct connection, for `drizzle-kit` migrations only |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes | Clerk publishable key. `BRICK_CLERK_PUBLISHABLE_KEY` is the fallback name |
+| `CLERK_SECRET_KEY` | Yes | Clerk secret key. `BRICK_CLERK_SECRET_KEY` is the fallback name |
+| `BRICK_AUTH_DISABLED` | No | Local dev only. Set `true` to bypass the Clerk gate |
+| `INGEST_SECRET` | Yes | Authorizes manual cron invocation and inbound ingest |
 | `PINECONE_API_KEY` | No | Vector search (optional for local dev) |
 | `ANTHROPIC_API_KEY` | No | Claude for observation enrichment |
 
@@ -64,61 +67,71 @@ Pull from Vercel:
 vercel env pull
 ```
 
-## Data Sources (14 Integrations)
+## Data Sources (27 Registered, 24 Live)
+
+The registry is `02-brick.intel/app/lib/sources.ts`. It is the source of truth for what exists, on what cadence, and whether it is live. The live surface is `intel.lfiq.app/sources`.
 
 ### Incoming Integration Details
 
-| Source | Frequency | API | Purpose | Status |
-|--------|-----------|-----|---------|--------|
-| **Microsoft 365** | Daily | Microsoft Graph | Calendar, tasks, presence | Active |
-| **Granola** | Daily | REST API | Meeting transcripts, insights | Active |
-| **Smartsheet** | Nightly | REST API | Project tracking, tasks | Active |
-| **PropertyRadar** | Weekly | REST API | SF comp data, distress scores | Active |
-| **DataTree** | Weekly | SFTP | Property records, liens, ownership | Active |
-| **SF DataSF** | Nightly | Socrata (REST) | Assessor records, APN, permits | Active |
-| **SF Rent Board** | Monthly | Web scrape | Registered rents, appeals | Active |
-| **Power BI** | Daily 18:30 UTC | Export → GCP | Golden Data Model | Active |
-| **Box** | On-demand | REST API | Document uploads, indexing | Active |
-| **Pinecone** | Real-time | gRPC | Vector sync for embeddings | Active |
-| **Anthropic** | Real-time | REST API | Observation enrichment via Claude | Active |
-| **Cartesia** | On-demand | REST API | Voice synthesis for alerts | Configured |
-| **GitHub** | Real-time | Webhooks | Deployment notifications | Active |
-| **Cloudflare** | Real-time | Email workers | Inbound forwarding | Active |
+| Source | Cadence | Trigger | Purpose | Status |
+|--------|---------|---------|---------|--------|
+| **M365, lfiq tenant** | Every 2h | Vercel cron | Email, calendar | Live |
+| **M365, Mosser tenant** | Every 2h | Vercel cron | Email, calendar | Live |
+| **SharePoint report imports** | Every 2h | Vercel cron | Yardi report workbooks | Live |
+| **Outlook contacts** | Every 2h | Vercel cron | Contact records | Live |
+| **Granola** | Every 6h | Vercel cron | Meeting transcripts | Live |
+| **Zoom** | Every 6h | Vercel cron | Meeting transcripts | Live |
+| **Connected file accounts** | Every 6h | Vercel cron | Box, Dropbox, Google Drive | Live |
+| **Google Gmail and Calendar** | Every 6h | Vercel cron | Connected personal accounts | Live |
+| **Market news (RSS)** | Every 6h | Vercel cron | Real-estate press | Live |
+| **Listing alerts** | On email | Vercel cron | Apartments.com, Zillow alerts routed by subject | Live |
+| **Smartsheet** | 08:00 UTC daily | Vercel cron | Project tracking, tasks | Live |
+| **Teams chat takeaways** | On email | Vercel cron | Daily takeaways routed by subject | Live |
+| **SF Open Data** | 6:30 AM daily | Fly batch job | Assessor records, APN, permits | Live |
+| **Craigslist SF rentals** | 5:30 AM daily | Fly batch job | Competitor listings | Live |
+| **Power BI** | 18:30 UTC daily | Fly `gdm-extractor` | Golden Data Model | Live |
+| **Brickston portfolio scans** | Daily | Fly batch jobs | AR events, notice-to-vacate, vendor COI, permits, code violations | Live |
+| **Yardi** | n/a | None | Direct PM-system pull. There is no Yardi API access on our side | Down |
+| **DocuSign** | n/a | None | Not wired | Down |
+
+The registry still labels the batch-job triggers `cloud-run`. That label predates the Fly migration. The jobs run on Fly `brick-cron`.
 
 ### How Ingest Works
 
-1. **Source system** (e.g., Smartsheet API) sends data to a Cloud Run ingest job
-2. **Ingest job** validates and transforms data
-3. **Insert into `items.inbox_items`** with source, timestamp, payload
-4. **Trigger knowledge graph processor** to link observations
-5. **Enrich with embeddings** (Pinecone sync)
-6. **Send notification** if high priority
+1. **A Vercel cron** hits an Intel route on schedule, or a batch job on Fly `brick-cron` posts in
+2. **The route** validates the caller (`x-vercel-cron`, `Bearer CRON_SECRET`, or `x-ingest-secret`), then transforms the payload
+3. **Insert into `items.inbox_items`** with source, timestamp, payload, and an idempotency key so a no-op upstream save does not re-ingest
+4. **Log the run** into `items.source_runs` and flip `items.source_config.status` to `live`
+5. **Extractor and edge builder crons** promote raw rows into tasks, commitments and knowledge edges
+6. **Enrich with embeddings** (Pinecone sync)
 
-Example flow for Smartsheet task:
+There is no per-source table. Every source converges on `items.inbox_items` and is separated only by the `source` column.
+
+Example flow for a Smartsheet row:
 ```
 Smartsheet API
   ↓
-Cloud Run job (smartsheet-ingest)
+Vercel cron → GET /api/ingest/smartsheet   (0 8 * * *)
   ↓
-INSERT INTO items.inbox_items (source, payload)
+INSERT INTO items.inbox_items (source='smartsheet', payload, idempotency_key)
   ↓
-Cloud Run job (knowledge-graph-processor)
+Vercel cron → /api/extract                 (*/15 * * * *)
+  ↓
+Vercel cron → /api/cron/extract-edges      (0 * * * *)
   ↓
 INSERT INTO items.knowledge_edges (source_id, target_id)
   ↓
 POST to Pinecone (create embedding)
-  ↓
-Brick chat notification (if priority > threshold)
 ```
 
 ## Key Flows
 
 ### Flow 1: New Observation Arrives
 1. External source sends data (e.g., Smartsheet, M365)
-2. Cloud Run ingest job validates and inserts into `items.inbox_items`
-3. Knowledge graph processor links observation to properties/deals
+2. The Vercel cron route validates the caller and inserts into `items.inbox_items`
+3. The edge-refresh cron links the observation to properties and deals
 4. Embedding generated and stored in Pinecone
-5. Intel UI updates via real-time subscription
+5. Intel UI updates on the next load
 6. If priority > threshold, Brick chat sends notification
 
 ### Flow 2: User Acknowledges Observation
@@ -138,32 +151,41 @@ Brick chat notification (if priority > threshold)
 
 | Variable | Required? | Default | Purpose |
 |----------|-----------|---------|---------|
-| `DATABASE_URL` | Yes | — | Neon connection string (intel role) |
-| `NEXTAUTH_SECRET` | Yes | — | Session encryption |
-| `NEXTAUTH_URL` | No | http://localhost:3001 | OAuth callback URL |
-| `PINECONE_API_KEY` | No | — | Vector search API key |
-| `PINECONE_INDEX` | No | `lfiq-observations` | Pinecone index name |
-| `ANTHROPIC_API_KEY` | No | — | Claude API key (enrichment) |
-| `SMARTSHEET_API_KEY` | No | — | Smartsheet OAuth token (ingest) |
-| `GRAPH_API_TOKEN` | No | — | Microsoft Graph token (M365) |
+| `DATABASE_URL` | Yes | n/a | Neon connection string, pooled (intel role) |
+| `DATABASE_URL_UNPOOLED` | No | n/a | Direct connection for `drizzle-kit` only |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes | n/a | Clerk publishable key |
+| `CLERK_SECRET_KEY` | Yes | n/a | Clerk secret key |
+| `BRICK_AUTH_DISABLED` | No | n/a | Local dev bypass |
+| `INGEST_SECRET` | Yes | n/a | Authorizes manual cron runs and inbound ingest |
+| `CRON_SECRET` | Yes | n/a | Bearer token accepted by cron routes |
+| `PINECONE_API_KEY` | No | n/a | Vector search API key |
+| `ANTHROPIC_API_KEY` | No | n/a | Claude API key (enrichment) |
+| `MS_TENANT_ID` / `MS_CLIENT_ID` / `MS_REFRESH_TOKEN` | No | n/a | Delegated Microsoft Graph token for the report-import cron. Roughly 90-day expiry, rotates on use |
+| `REPORTS_INBOUND_SECRET` | No | n/a | Bearer token for the inbound email report route |
 
 ## Troubleshooting
 
 ### Issue 1: "Observations not appearing in inbox"
 **Symptom:** Inbox is empty or stale data from days ago  
-**Cause:** Ingest pipeline failed, Neon connection issue, or polling not running  
+**Cause:** A cron run failed, the Neon connection dropped, or the extractor is behind  
 **Fix:**
 ```bash
-# Check Cloud Run ingest jobs
-gcloud run services list --project=brickston-v2
+# Start at the source health page
+open https://intel.lfiq.app/sources
 
-# Check job logs
-gcloud run logs read smartsheet-ingest \
-  --project=brickston-v2 --limit=50
+# Confirm in SQL. The Neon console defaults to `public`, so qualify the schema
+psql "$DATABASE_URL" -c \
+  "SELECT source, count(*), max(received_at) FROM items.inbox_items GROUP BY source ORDER BY 3 DESC;"
 
-# Manually trigger ingest job
-gcloud run jobs execute smartsheet-ingest \
-  --project=brickston-v2
+# Check the run log for the source that looks stuck
+psql "$DATABASE_URL" -c \
+  "SELECT source, completed_at, records_ingested, error FROM items.source_runs ORDER BY completed_at DESC LIMIT 20;"
+
+# Re-run a cron by hand. Every cron route accepts the ingest secret
+curl "https://intel.lfiq.app/api/ingest/smartsheet?secret=$INGEST_SECRET"
+
+# Dry run first if you only want to see what it would pull
+curl "https://intel.lfiq.app/api/cron/graph-report-imports?dryrun=1&secret=$INGEST_SECRET"
 ```
 
 ### Issue 2: "Database connection timeout on observations query"
@@ -190,21 +212,18 @@ grep PINECONE_API_KEY .env.local
 # Log in to Pinecone console at https://app.pinecone.io
 # Select project → select index → check vector count
 
-# Re-trigger embedding sync
-gcloud run jobs execute pinecone-sync \
-  --project=brickston-v2
+# Re-run the extractor, which is what writes embeddings
+curl "https://intel.lfiq.app/api/extract?source=items-inbox&limit=50&secret=$INGEST_SECRET"
 ```
 
-### Issue 4: "Auth fails with 'user not found'"
-**Symptom:** 403 error after login, message "User not found in database"  
-**Cause:** Auth.js session exists but no user row in database  
+### Issue 4: "Signed in but the dashboard is empty, or you get bounced to /login"
+**Symptom:** Clerk session is valid but Intel shows no data, or the middleware redirects you  
+**Cause:** Your Clerk session claim does not include `intel`, so the middleware gate rejects you. The in-route gates also read Neon, so an unprovisioned user can load the shell with no data  
 **Fix:**
 ```bash
-# User must be provisioned in Neon first
-# Contact platform team to add user to items.users table
-
-# Or clear browser cache and retry
-# DevTools > Application > Storage > Clear Site Data
+# Access is granted in Clerk, not in the database.
+# Ask a brick_admin to add you through Hub /admin/users, or in the Clerk dashboard.
+# Inserting a row in items.auth_allowed_users gates nothing. It is a read-only projection.
 ```
 
 ## Common Tasks
@@ -231,34 +250,41 @@ WHERE payload->>'property_apn' = '0123-456-789'
 ORDER BY created_at DESC;
 ```
 
-### Task 2: Trigger a Manual Ingest Job
+### Task 2: Trigger a Manual Ingest Run
+Every cron route is an HTTP endpoint that accepts the ingest secret, so there is no job runner to invoke.
+
 ```bash
-# Smartsheet sync (runs nightly by default)
-gcloud run jobs execute smartsheet-ingest --project=brickston-v2
+# Smartsheet (scheduled 08:00 UTC daily)
+curl "https://intel.lfiq.app/api/ingest/smartsheet?secret=$INGEST_SECRET"
 
-# PropertyRadar sync (runs weekly by default)
-gcloud run jobs execute propertyradar-ingest --project=brickston-v2
+# M365 Graph pull (scheduled every 4h)
+curl "https://intel.lfiq.app/api/cron/graph-pull?secret=$INGEST_SECRET"
 
-# M365 calendar sync
-gcloud run jobs execute m365-ingest --project=brickston-v2
+# SharePoint report imports (scheduled every 2h). Add dryrun=1 to inspect without writing
+curl "https://intel.lfiq.app/api/cron/graph-report-imports?secret=$INGEST_SECRET"
+```
+
+Fly batch jobs are triggered differently, by crontab label:
+```bash
+flyctl ssh console -a brick-cron -C "/app/run-job.sh <label>"
 ```
 
 ### Task 3: Add a New Data Source
 To integrate a new external data source into Intel:
 
-1. Create ingest job (Cloud Run)
-2. Add source credentials to GCP Secret Manager
-3. Write validation logic (transform → items.inbox_items)
-4. Add knowledge graph linking
-5. Deploy and test with sample data
-6. Add to data sources table in docs
-
-See Cloud Run jobs directory in the monorepo for examples.
+1. Add the source to `app/lib/sources.ts` with its cadence, tenant, and alert threshold
+2. Write the ingest route under `app/api/ingest/` and gate it with `assertIngestAuth`
+3. Add the cron entry to `vercel.json`, plus a `functions` entry with `maxDuration: 300`
+4. Write validation logic (transform → `items.inbox_items`, with an idempotency key)
+5. Add knowledge graph linking
+6. Add the credentials to the Intel Vercel environment, never to the repo
+7. Deploy and test with a dry run before letting it write
 
 ## Related Documentation
 
-- **Architecture:** System topology, auth model, 14 data sources
+- **Architecture:** System topology, auth model, source registry
 - **Getting Started:** Setup, Logins, Install Tools
 - **Command:** Portfolio management (Intel feeds into Command inbox)
-- **Semantic Search:** Pinecone documentation, embedding models
-- **Neon Database:** Connection pooling, schema reference
+- [Data Ingestion](/docs/data-ingestion)
+- [Neon Database](/docs/neon-database)
+- [Clerk Authentication](/docs/clerk-auth)

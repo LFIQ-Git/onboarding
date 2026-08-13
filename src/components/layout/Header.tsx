@@ -1,11 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { Menu, X, FileText } from 'lucide-react';
+import { docNav } from '@/lib/docs';
+import { Search } from '@/components/layout/Search';
 
 export function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const pathname = usePathname();
+
+  // The sidebar is hidden below lg, so this menu is the only navigation on
+  // small screens. Close it on navigation.
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [pathname]);
 
   return (
     <header className="fixed top-0 left-0 right-0 z-40 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 transition-colors">
@@ -18,15 +28,7 @@ export function Header() {
           </span>
         </Link>
 
-        {/* Center: Search (placeholder) */}
-        <div className="hidden md:flex flex-1 max-w-xs mx-8">
-          <input
-            type="text"
-            placeholder="Search docs..."
-            className="w-full px-4 py-2 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-50 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            disabled
-          />
-        </div>
+        <Search className="hidden md:block flex-1 max-w-xs mx-8" />
 
         {/* Right side: PDF link and mobile menu */}
         <div className="flex items-center gap-4">
@@ -42,8 +44,9 @@ export function Header() {
           {/* Mobile menu button */}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors"
+            className="lg:hidden p-2 rounded hover:bg-gray-100 dark:hover:bg-gray-900 transition-colors"
             aria-label="Toggle menu"
+            aria-expanded={mobileMenuOpen}
           >
             {mobileMenuOpen ? (
               <X size={24} className="text-gray-900 dark:text-gray-50" />
@@ -54,16 +57,39 @@ export function Header() {
         </div>
       </div>
 
-      {/* Mobile menu search placeholder */}
+      {/* Mobile navigation. Carries the full doc tree, since the sidebar is
+          hidden at this width. */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-gray-200 dark:border-gray-800 p-4 bg-white dark:bg-gray-900">
-          <input
-            type="text"
-            placeholder="Search docs..."
-            className="w-full px-4 py-2 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-50 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            disabled
-          />
-        </div>
+        <nav className="lg:hidden max-h-[calc(100vh-4rem)] overflow-y-auto border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 px-4 py-4">
+          <Search className="md:hidden mb-4" />
+
+          {docNav.map((section) => (
+            <div key={section.title} className="mb-6">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                {section.title}
+              </p>
+              <ul className="space-y-1">
+                {section.items.map((item) => {
+                  const isActive = pathname === item.href;
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        className={`block rounded px-3 py-2 text-sm transition-colors ${
+                          isActive
+                            ? 'bg-blue-50 font-semibold text-blue-700 dark:bg-gray-900 dark:text-blue-400'
+                            : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-900'
+                        }`}
+                      >
+                        {item.label}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
+        </nav>
       )}
     </header>
   );

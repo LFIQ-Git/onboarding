@@ -22,10 +22,11 @@ Sticks is an AI assistant tailored to LFIQ knowledge:
 
 | Environment | URL | Status | Platform |
 |-------------|-----|--------|----------|
-| **Production** | https://sticks.lfiq.app | Live | Vercel + Cloud Run |
+| **Production** | https://sticks.lfiq.app | Live, git-connected auto-deploy | Vercel |
 | **Preview** | https://sticks-branch.lfiq.app | Auto-deploy on PR | Vercel |
 | **Local Dev** | http://localhost:3006 | Via `npm run dev` | Local machine |
-| **Backend Chat Proxy** | Cloud Run | Processes queries, validates OIDC | Cloud Run |
+
+Note the one-letter trap: `sticks.lfiq.app` is Sticks, `stacks.lfiq.app` is Stacks. They are different apps. `jr.lfiq.app` is attached to the Vercel project but has no DNS record, so it is dead.
 
 ## Tech Stack
 
@@ -33,11 +34,11 @@ Sticks is an AI assistant tailored to LFIQ knowledge:
 |-----------|------|-------|
 | **Frontend** | Next.js 15 | React 19, chat UI, thread management |
 | **Language** | TypeScript | Full type coverage |
-| **Auth** | Clerk | OAuth via accounts.lfiq.app |
-| **Backend** | Cloud Run | Python FastAPI, prompt engineering |
-| **AI Model** | Anthropic Claude | Latest available model (claude-opus or claude-sonnet) |
+| **Auth** | NextAuth v5, Google provider | Sticks is the exception to the fleet Clerk migration. It has its own NextAuth setup with an email allowlist |
+| **Backend** | Next.js API routes | Prompt assembly and context retrieval run in-app |
+| **AI Model** | Anthropic Claude | Model id is set in code, check the repo before quoting one |
 | **Context** | Neon + Pinecone | Portfolio data, vector search for RAG |
-| **Deployment** | Vercel (frontend) + Cloud Run (backend) | Auto-deploy on main |
+| **Deployment** | Vercel | Push to main auto-deploys, no promote step |
 
 ## Local Development
 
@@ -53,11 +54,12 @@ npm run dev
 
 | Variable | Required? | Purpose |
 |----------|-----------|---------|
-| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes | Clerk OAuth |
-| `CLERK_SECRET_KEY` | Yes | Session signing |
-| `NEXT_PUBLIC_API_URL` | Yes | Backend API base (Cloud Run) |
-| `ANTHROPIC_API_KEY` | Yes | Claude API key (backend only) |
-| `HUB_CHAT_PROXY_SA_JSON` | Yes | Cloud Run invoker SA (base64) |
+| `AUTH_SECRET` | Yes | NextAuth session encryption |
+| `AUTH_GOOGLE_ID` | Yes | Google OAuth client ID. Trailing whitespace here produces a confusing `invalid_client` error from Google |
+| `AUTH_GOOGLE_SECRET` | Yes | Google OAuth client secret |
+| `AUTH_ALLOWED_EMAILS` | Yes | Comma-separated allowlist. The sign-in callback rejects anything not on it |
+| `ANTHROPIC_API_KEY` | Yes | Claude API key (server only) |
+| `DATABASE_URL` | Yes | Neon connection for context retrieval |
 
 Pull from Vercel:
 ```bash
@@ -73,7 +75,7 @@ User Chat Input
   ↓
 Vercel Frontend (sticks.lfiq.app)
   ↓
-Cloud Run Chat Proxy (validates OIDC token)
+NextAuth middleware (session check; API routes 401, pages redirect to /login)
   ↓
 Prompt Assembly:
   1. System prompt (tuned for LFIQ context)
@@ -106,7 +108,7 @@ understand their portfolio and make better decisions.
 You have access to:
 - Portfolio data: properties, units, rents, leases, valuations
 - Market data: rent trends, competitor activity, comps, distress indicators
-- Internal knowledge: observations from 14 data sources, prior analysis
+- Internal knowledge: observations from the Intel source registry, prior analysis
 
 When asked a question, use this data to answer. Show your reasoning. If data is missing, say so.
 Speak like a real estate operator. No jargon. No unnecessary caveats.
@@ -116,9 +118,9 @@ Speak like a real estate operator. No jargon. No unnecessary caveats.
 
 ### Flow 1: Answer Property Question
 1. User types: "What's the occupancy at 123 Main?"
-2. Frontend sends to Cloud Run proxy
-3. Proxy validates Clerk OIDC token
-4. Proxy retrieves from Neon:
+2. Frontend posts to a Sticks API route
+3. Middleware checks the NextAuth session; an expired session returns 401 rather than redirecting, so the login page never streams into the transcript
+4. The route retrieves from Neon:
    - Property record (address, units, units occupied)
    - Lease status (upcoming expirations)
    - Rent data (current market, achieved rents)
@@ -136,8 +138,8 @@ Speak like a real estate operator. No jargon. No unnecessary caveats.
 
 ### Flow 3: RAG (Retrieval-Augmented Generation)
 1. User: "What did we learn about the Sunset district?"
-2. Frontend sends to Cloud Run proxy
-3. Proxy queries Pinecone for embeddings related to "Sunset district"
+2. Frontend posts to a Sticks API route
+3. The route queries Pinecone for embeddings related to "Sunset district"
 4. Top 5 documents/observations retrieved
 5. Claude reads context and synthesizes answer
 6. Response includes sources: "Based on observations from [dates], here's what we learned..."
@@ -159,19 +161,19 @@ Sticks can access the following data for context:
 
 ### Issue 1: "Chat shows 'Error' state"
 **Symptom:** After typing a question, red error appears  
-**Cause:** Cloud Run proxy down, Anthropic API key invalid, or OIDC token expired  
+**Cause:** The session expired (the API route returns 401), or the Anthropic key is missing  
 **Fix:**
 ```bash
-# Check Cloud Run service
-gcloud run services describe sticks-chat-proxy --project=brickston-v2
+# Check the app health endpoint, which is public
+curl https://sticks.lfiq.app/api/health
 
-# Check if service is running
-curl https://sticks-chat-proxy.lfiq.app/health
+# Check the deployment and function logs
+vercel logs --follow
 
-# Verify Anthropic API key
-echo $ANTHROPIC_API_KEY
+# Confirm the key name is set on the project
+vercel env ls
 
-# Clear browser cache and re-authenticate
+# Sign out and back in, then clear site data
 # DevTools > Application > Clear Site Data
 ```
 
@@ -181,12 +183,11 @@ echo $ANTHROPIC_API_KEY
 **Fix:**
 ```bash
 # Verify property exists in Neon
-psql -h ep-tiny-lab-akrddwgy.us-west-2.neon.tech \
-  -U command neondb \
-  -c "SELECT address FROM portfolio.properties WHERE address LIKE '%123 Main%';"
+psql "$DATABASE_URL" \
+  -c "SELECT address FROM portfolio.properties WHERE address ILIKE '%<street>%';"
 
-# Check Cloud Run logs for context retrieval errors
-gcloud run logs read sticks-chat-proxy --project=brickston-v2 --limit=50
+# Check function logs for context retrieval errors
+vercel logs --follow
 
 # Verify Pinecone embeddings are populated
 # Log in to Pinecone console: https://app.pinecone.io
@@ -199,15 +200,13 @@ gcloud run logs read sticks-chat-proxy --project=brickston-v2 --limit=50
 **Fix:**
 ```bash
 # Verify Neon has latest data
-psql -h ep-tiny-lab-akrddwgy.us-west-2.neon.tech \
-  -U command neondb \
+psql "$DATABASE_URL" \
   -c "SELECT created_at, monthly_rent FROM portfolio.units WHERE property_id = $1 ORDER BY created_at DESC LIMIT 1;"
 
-# Re-index Pinecone with latest documents
-gcloud run jobs execute sticks-embeddings-refresh --project=brickston-v2
-
-# Check Cloud Run logs
-gcloud run logs read sticks-embeddings-refresh --project=brickston-v2
+# If the underlying data is stale, the problem is upstream in ingest, not in Sticks.
+# Check the Intel source health page and the batch jobs on Fly
+open https://intel.lfiq.app/sources
+flyctl logs -a brick-cron
 ```
 
 ## Common Tasks
@@ -233,7 +232,8 @@ Ask Sticks:
 
 ## Related Documentation
 
-- **Architecture:** Cloud Run chat proxy, OIDC validation, Pinecone RAG
+- **Architecture:** System topology, auth model, Pinecone RAG
 - **Getting Started:** Setup, Logins, Install Tools
-- **Hub:** Similar chat interface (Brick chat)
+- **Hub:** Similar chat interface (Brick chat), but on Clerk and proxied to the Fly backend
+- [Vercel Deployment](/docs/vercel-deployment)
 - **Anthropic API:** Claude models, pricing, rate limits

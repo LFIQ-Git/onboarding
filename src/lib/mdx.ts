@@ -5,6 +5,7 @@ import { VideoEmbed } from '@/components/content/VideoEmbed';
 import { Callout } from '@/components/content/Callout';
 import { Table } from '@/components/content/Table';
 import { mdxComponents } from '@/lib/mdx-components';
+import remarkGfm from 'remark-gfm';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -38,6 +39,11 @@ export async function getDocBySlug(slug: string[]): Promise<GetDocResult> {
       components: componentsMap,
       options: {
         parseFrontmatter: true,
+        // GFM is what gives us pipe tables, strikethrough and autolinks.
+        // Without it every table in the manual renders as raw pipe text.
+        mdxOptions: {
+          remarkPlugins: [remarkGfm],
+        },
       },
     });
 

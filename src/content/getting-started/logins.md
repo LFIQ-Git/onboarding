@@ -1,61 +1,76 @@
 # Getting Started: Logins & Authentication
 
-Complete reference for all authentication systems used across LFIQ applications: Clerk OAuth, database roles, API credentials, and GCP service accounts.
+Complete reference for the authentication systems used across LFIQ applications: Clerk, the Sticks exception, database roles, and API credentials.
 
-## Clerk Authentication (Web Apps)
+## Clerk Authentication (BRICK Apps)
 
-Clerk is the centralized OAuth broker for all web applications. Single sign-on means logging in once at accounts.lfiq.app grants access to all LFIQ apps.
+One shared Clerk instance covers Hub, Intel, Command and its sub-apps, Keystone, Registry, and Stacks. Log in once and the session carries across all of them. Sticks is the exception and runs its own NextAuth setup, covered below. Full depth is on [Clerk Authentication](/docs/clerk-auth).
+
+NextAuth and the old `@brick/auth` package were retired from the BRICK apps in the June 2026 migration. If you find `NEXTAUTH_SECRET` or `NEXTAUTH_URL` referenced in one of those repos, it is dead configuration.
 
 ### Logging In
 
 **Supported Providers:**
-- Google OAuth (any Gmail account, @leftfieldinv.com preferred)
-- Microsoft OAuth (any Microsoft account, Microsoft 365 preferred)
+- Google
+- Microsoft
+
+That is the whole list. Password, passkey and email-code sign-in are all disabled on the instance. The org is split across Google Workspace and Microsoft 365, which is why both providers exist rather than Google alone.
 
 **Login Flow:**
-1. Visit any LFIQ app (hub.lfiq.app, intel.lfiq.app, etc.)
-2. Click "Sign in with Google" or "Sign in with Microsoft"
-3. Redirect to accounts.lfiq.app (Clerk tenant)
+1. Visit any BRICK app (hub.lfiq.app, intel.lfiq.app, etc.). If you are not signed in you are redirected to that app's `/login`
+2. Clerk renders on that page. The apps do not hand off to a Clerk-hosted sign-in page
+3. Click "Sign in with Google" or "Sign in with Microsoft"
 4. Authenticate with your provider
 5. Redirect back to the app with a Clerk session cookie
 
+The route is `/login`, not `/sign-in`. Go straight to `https://<app>.lfiq.app/login` if you want to skip the redirect.
+
+You may see two Clerk domains referenced elsewhere. `clerk.lfiq.app` is the Clerk Frontend API, which is infrastructure you never open in a browser. `accounts.lfiq.app` is the Clerk Account Portal, which the apps bypass for sign-in but still use for profile management and signing out of all sessions. Full detail is on [Clerk Authentication](/docs/clerk-auth).
+
 **Troubleshooting Clerk Login:**
-- **"Invalid credential" error:** Make sure your email is on the allowlist in Clerk settings
-- **"Session cookie expired":** Clear browser cookies and log in again
-  ```
-  DevTools > Application > Cookies > delete __session (accounts.lfiq.app)
-  DevTools > Application > Cookies > delete __session (app domain)
-  ```
-- **"Unauthorized" after login:** Your user account doesn't have permission for this app; contact team@lfiq.app
+- **Cannot sign up at all:** Sign-up is restricted to an allowlist of company domains. You have to be invited before your first sign-in. The allowlist gates sign-ups only, so once you exist you always sign in
+- **"Session cookie expired":** Clear the `__session` cookie for the app domain and the Clerk domain, then sign in again
+- **Signed in but access denied:** You are authenticated but your Clerk org role does not include that app. A `brick_admin` grants it
 
-### OAuth Configuration
+### Access Model
 
-**Clerk Tenant:** lfiq-cloud  
-**Auth URL:** https://accounts.lfiq.app  
-**Configured Providers:**
-- Google OAuth (via Google Cloud OAuth app)
-- Microsoft OAuth (via Azure AD)
+Access is decided by the Clerk org role, surfaced to each app as the `sessionClaims.apps` claim and checked in middleware.
 
-**User Allowlist:** Managed in Clerk Dashboard (Settings > Email Allowlist)  
-**Two-Factor:** Optional per user (can be enabled in Clerk user settings)
+| App role | Clerk org role | Grants |
+|----------|----------------|--------|
+| `brick_admin` | `org:admin` | Hub, Registry, Intel, Command, Keystone, plus admin surfaces |
+| `command_user` | `org:member` | Command only |
 
-### Clerk Secrets (for Developers)
+Clerk is the single source of truth. The `items.auth_allowed_users` table is a read-only projection refreshed on every `/admin/users` load. Inserting a row there grants nothing.
 
-In your `.env.local` (fetch from GCP Secret Manager):
+**Two ways to add a user:** Hub `/admin/users` (you must be `brick_admin`), or the Clerk Dashboard's invite flow.
+
+### Clerk Environment Variables (for Developers)
+
+Pulled from Vercel with `vercel env pull`, never from a repo:
 ```bash
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=<from GCP secret clerk-publishable-key>
-CLERK_SECRET_KEY=<from GCP secret clerk-secret-key>
-NEXT_PUBLIC_CLERK_SIGN_IN_URL=/sign-in
-NEXT_PUBLIC_CLERK_SIGN_UP_URL=/sign-up
-NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL=/
-NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL=/
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=   # BRICK_CLERK_PUBLISHABLE_KEY is the fallback name
+CLERK_SECRET_KEY=                    # BRICK_CLERK_SECRET_KEY is the fallback name
+BRICK_CLERK_ORGANIZATION_ID=
+BRICK_AUTH_DISABLED=                 # local dev only
 ```
 
-Fetch from GCP:
-```bash
-gcloud secrets versions access latest --secret=clerk-publishable-key --project=brickston-v2
-gcloud secrets versions access latest --secret=clerk-secret-key --project=brickston-v2
-```
+Production needs a `pk_live_` publishable key. A `pk_test_` key points at a throwaway development instance that does not know your account.
+
+Do not pass these keys as module-level options to `clerkMiddleware`. Clerk reads them from the environment, and passing them explicitly breaks in the Edge Runtime.
+
+## Sticks Authentication (NextAuth)
+
+Sticks did not move to Clerk. It runs NextAuth v5 with a Google provider only, and gates access with an email allowlist checked in the sign-in callback.
+
+| Variable | Purpose |
+|----------|---------|
+| `AUTH_SECRET` | Session encryption |
+| `AUTH_GOOGLE_ID` | Google OAuth client ID |
+| `AUTH_GOOGLE_SECRET` | Google OAuth client secret |
+| `AUTH_ALLOWED_EMAILS` | Comma-separated allowlist |
+
+A trailing space pasted into `AUTH_GOOGLE_ID` is sent to Google verbatim and produces `Error 401: invalid_client`. Check for whitespace before assuming the client is misconfigured.
 
 ## Neon Database Authentication
 
@@ -72,45 +87,40 @@ postgresql://ROLE:PASSWORD@ep-tiny-lab-akrddwgy.us-west-2.neon.tech/neondb?sslmo
 
 ### Database Roles (Least Privilege)
 
-| Role | Password | Apps | Allowed Schemas | Notes |
-|------|----------|------|-----------------|-------|
-| `intel` | (in GCP) | Intel | items, market, portfolio (read) | Ingest only |
-| `command` | (in GCP) | Command | portfolio, collect, repair, items (read) | CRUD operations |
-| `pkm` | (in GCP) | Keystone | public | Daily briefing, tasks |
-| `gdm_extractor` | (in GCP) | GCP Cloud Run | gdm | Golden Data Model sync |
-| `market_scraper` | (in GCP) | GCP Cloud Run | market | Rent trends, comps |
-| `neondb_owner` | (in GCP) | Migrations only | * | Schema changes, not for apps |
+| Role | Apps | Allowed Schemas | Notes |
+|------|------|-----------------|-------|
+| `intel` | Intel | items, market, portfolio (read) | Ingest |
+| `command` | Command, brickston-backend | portfolio, collect, repair, gdm (read), market (read) | CRUD operations |
+| `pkm` | Keystone | public | Daily briefing, tasks |
+| `gdm_extractor` | GDM extract job | gdm | Golden Data Model sync |
+| `market_scraper` | Market scrape jobs | market | Rent trends, comps |
+| `neondb_owner` | Migrations only | * | DDL and RLS policies, never an app runtime role |
 
-### Fetching Connection Strings
+Grants alone are not always enough. Several tables have Row-Level Security enabled, and a role without a policy sees zero rows with no error. Add policies as `neondb_owner`, not through the app-role migration runner.
+
+### Getting a Connection String
+
+The DSN comes from the app's Vercel environment:
 
 ```bash
-# Intel
-gcloud secrets versions access latest --secret=intel-neon-database-url --project=brickston-v2
-
-# Command (direct, no connection pooling)
-gcloud secrets versions access latest --secret=command-database-url-direct --project=brickston-v2
-
-# Items Hub (observations)
-gcloud secrets versions access latest --secret=items-hub-database-url --project=brickston-v2
+cd /path/to/the/app
+vercel env pull
+grep DATABASE_URL .env.local
 ```
+
+Use the pooled `DATABASE_URL` at runtime. `DATABASE_URL_UNPOOLED` is for migration tooling only, and in at least one project it is stored wrapped in literal quotes, so code that reads it has to strip them.
 
 ### Local Database Access
 
-For development, connect directly to Neon using `psql`:
+Connect directly to Neon with `psql`. There is no proxy step; Cloud SQL was deleted.
 
 ```bash
-# Connect as intel role
-export DATABASE_URL=$(gcloud secrets versions access latest --secret=intel-neon-database-url --project=brickston-v2)
-psql "$DATABASE_URL"
-
-# Or manually
-psql -h ep-tiny-lab-akrddwgy.us-west-2.neon.tech \
-  -U intel -d neondb \
-  -c "SELECT * FROM portfolio.properties LIMIT 5;"
+psql "$DATABASE_URL" -c "SELECT * FROM portfolio.properties LIMIT 5;"
 ```
 
 **Port:** 5432 (Neon standard)  
-**SSL Mode:** Required (always use `sslmode=require`)
+**SSL Mode:** Required (always use `sslmode=require`)  
+**Schema:** The Neon console defaults to `public`. Switch the dropdown or qualify the table, or the data will look missing.
 
 ## Google OAuth (Clerk Social Provider)
 
@@ -118,14 +128,14 @@ Clerk delegates OAuth to Google. End users authenticate via Google Accounts.
 
 ### Configuration Details
 
-**Google OAuth Client:** Managed in GCP console under lfiq-cloud project  
 **Scopes:** Basic profile (email, name)  
-**Callback:** Clerk handles redirects (automatic)
+**Callback:** Clerk handles redirects automatically  
+**Where it is configured:** the Clerk dashboard. The Clerk Backend API does not expose auth strategies or the domain allowlist, so these cannot be changed by script.
 
 ### Troubleshooting Google OAuth
 
 - **"Invalid OAuth client":** Clerk OAuth config drifted; contact platform team
-- **"Access denied":** User's Google account is not on the Clerk allowlist
+- **"Access denied":** The account's domain is not on the Clerk sign-up allowlist
 - **"Scope not granted":** User declined permission; ask them to log in again and grant all permissions
 
 ## Microsoft OAuth (Clerk Social Provider)
@@ -134,14 +144,15 @@ Clerk delegates OAuth to Microsoft. End users authenticate via Microsoft account
 
 ### Configuration Details
 
-**Azure AD Tenant:** lfiq-cloud (via Clerk)  
 **Scopes:** Basic profile (email, name, tenant ID)  
-**Callback:** Clerk handles redirects (automatic)
+**Callback:** Clerk handles redirects automatically
+
+Microsoft is not optional. Part of the organization is on Microsoft 365 rather than Google Workspace, and a Google-only setup would lock those users out.
 
 ### Troubleshooting Microsoft OAuth
 
 - **"Invalid OAuth client":** Clerk OAuth config drifted; contact platform team
-- **"Tenant mismatch":** User's Microsoft account is from a different tenant; use a personal Microsoft account
+- **"Tenant mismatch":** The account is from a tenant that is not allowlisted. A personal Microsoft account will not provision either
 - **"Scope not granted":** User declined permission; ask them to log in again and grant all permissions
 
 ## GitHub CLI Authentication
@@ -192,52 +203,22 @@ Service: gh
   gh auth refresh
   ```
 
-## GCP Service Account Authentication
+## GCP Authentication
 
-Service accounts are used for automated access to GCP resources (Cloud Run jobs, Secret Manager, Cloud Scheduler).
-
-### When You Need It
-
-- Deploying to Cloud Run
-- Accessing GCP Secret Manager
-- Checking Cloud Scheduler status
-- Viewing Cloud Logging
-
-### Authentication Methods
-
-**Application Default Credentials (recommended):**
-```bash
-gcloud auth application-default login
-# Stores credentials in ~/.config/gcloud/application_default_credentials.json
-```
-
-**Service Account JSON (CI/CD only):**
-```bash
-# Download from GCP Console (never commit this file)
-gcloud auth activate-service-account --key-file=/path/to/key.json
-```
-
-### Verify GCP Authentication
+You will rarely need this. GCP is a wind-down, not a working surface. Billing is disabled on the `brickston-v2` project, so the Cloud Scheduler API refuses every call. Batch jobs run on Fly and application secrets live in Vercel and Fly. Two Vertex AI workloads and one idle Cloud Run job are what remain.
 
 ```bash
-gcloud auth list
-# Expected output: your account marked with *
-
-gcloud config list
-# Expected output: project = brickston-v2, region = us-west1
+gcloud auth login --launch-browser
+# The out-of-band flow is deprecated and fails. Use --launch-browser.
 ```
 
-### Using Service Accounts in Apps
+If a `gcloud` call returns "Reauthentication failed / cannot prompt", just retry. The credential often refreshes on the second attempt.
 
-Apps don't typically need to authenticate as a GCP service account. Instead, they use **Workload Identity Federation** (OIDC):
-- Vercel app → Cloud Run (OIDC token from Vercel)
-- Fly.io app → GCP APIs (OIDC token from Fly.io)
-
-See the per-app guides for details.
+See [GCP Cloud Run](/docs/gcp-cloud-run) for what is actually left.
 
 ## Fly.io Authentication
 
-Fly.io hosts brickston-backend. Authentication is via API token.
+Fly.io hosts `brickston-backend` (the Command API), `brick-cron` (the batch-job dispatcher), `brick-mcp-server`, and `pkm-mcp`. Authentication is via API token.
 
 ### Setup Flyctl
 
@@ -263,12 +244,18 @@ flyctl status --app=brickston-backend
 # View logs
 flyctl logs --app=brickston-backend
 
-# Deploy (requires git push first)
-flyctl deploy --app=brickston-backend
+# Deploy (requires git push first, and a running Docker daemon)
+colima start
+flyctl deploy --app brickston-backend --local-only
 
 # SSH into running instance
-flyctl ssh console --app=brickston-backend
+flyctl ssh console --app brickston-backend
+
+# Run a batch job by its crontab label
+flyctl ssh console -a brick-cron -C "/app/run-job.sh <label>"
 ```
+
+When an app runs more than one machine, `flyctl ssh sftp put` and `flyctl ssh console` can land on different machines, so an uploaded file appears to vanish. Pass the script inline instead of uploading it.
 
 ### Troubleshooting Fly.io
 
@@ -285,48 +272,40 @@ Hub and Keystone use the Anthropic API for Claude chat and embeddings.
 
 ### API Key
 
-Stored in GCP Secret Manager:
-```bash
-gcloud secrets versions access latest --secret=anthropic-api-key --project=brickston-v2
-```
+The key name is `ANTHROPIC_API_KEY`. It is set in each app's Vercel environment and on the relevant Fly apps.
 
-In `.env.local` (fetch from GCP):
 ```bash
-ANTHROPIC_API_KEY=<from GCP secret anthropic-api-key>
+vercel env pull
+grep ANTHROPIC_API_KEY .env.local
 ```
 
 ### Usage
 
-- **Hub chat proxy** — sends user messages to Claude via Anthropic API
-- **Keystone embeddings** — generates embeddings for RAG (Retrieval-Augmented Generation)
-- **Intel insights** — Claude analysis on observations and properties
+- **Hub chat proxy**: sends user messages to Claude via Anthropic API
+- **Keystone embeddings**: generates embeddings for RAG (Retrieval-Augmented Generation)
+- **Intel insights**: Claude analysis on observations and properties
 
 ### Rate Limits & Quotas
 
-- **Default tier:** 1 RPS (request per second)
-- **Burst:** up to 5 concurrent requests
-- **Monthly spend limit:** Set in Anthropic console ($500/month default)
+Rate limits and the spend cap are whatever is set on the account in the Anthropic console. Check there rather than assuming a tier.
 
 ### Troubleshooting Anthropic API
 
-- **"Invalid API key":** Key expired or rotated; fetch latest from GCP
-  ```bash
-  gcloud secrets versions access latest --secret=anthropic-api-key --project=brickston-v2
-  ```
+- **"Invalid API key":** Key rotated. Re-run `vercel env pull`, and update the Fly secret too if the backend is affected
 - **"Rate limit exceeded":** Too many concurrent requests; add exponential backoff
-- **"Quota exceeded":** Monthly spend limit hit; check Anthropic console for charges
+- **"Quota exceeded":** Spend limit hit; check the Anthropic console
 
 ## Summary: Which Credentials Do I Need?
 
-| Role | GitHub CLI | GCP Auth | Clerk | Fly.io | Anthropic |
-|------|-----------|----------|-------|--------|-----------|
-| Developer (Frontend) | ✓ | ✓ (read secrets) | (via Clerk UI) | ✗ | ✗ |
-| Developer (Backend) | ✓ | ✓ (deploy, secrets) | (via Clerk UI) | ✓ | ✓ |
-| DevOps / Platform | ✓ | ✓ (full access) | ✓ (admin) | ✓ | ✓ |
-| Product Manager | ✓ | ✗ | (via Clerk UI) | ✗ | ✗ |
+| Role | GitHub CLI | Vercel | Clerk | Fly.io | GCP |
+|------|-----------|--------|-------|--------|-----|
+| Developer (Frontend) | ✓ | ✓ (env pull) | ✓ (as a user) | ✗ | ✗ |
+| Developer (Backend) | ✓ | ✓ (env pull) | ✓ (as a user) | ✓ | ✗ |
+| DevOps / Platform | ✓ | ✓ (admin) | ✓ (admin) | ✓ | ✓ (residual workloads only) |
+| Product Manager | ✓ | ✗ | ✓ (as a user) | ✗ | ✗ |
 
 ## Next Steps
 
 - Complete **Setup** to clone the monorepo and install all tools
 - Read each **App Guide** (Hub, Intel, Command, etc.) for app-specific auth flows
-- See **Troubleshooting** for common authentication issues across all apps
+- See [Auth Issues](/docs/auth-issues) for common authentication failures across all apps

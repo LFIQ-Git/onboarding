@@ -32,14 +32,14 @@ Command is a comprehensive portfolio operating system:
 
 | Component | Tech | Notes |
 |-----------|------|-------|
-| **Frontend** | Next.js 15 monorepo | React 19, 7 sub-apps (web, collect, leasing, repair, documents, risk, utilities) |
+| **Frontend** | Next.js 15 monorepo | React 19, 8 npm workspaces under `apps/`: web, collect, leasing, repair, documents, utilities, payables, civic |
 | **Language** | TypeScript | Full type coverage |
-| **Auth** | Neon Auth + Auth.js | Database RLS per role |
+| **Auth** | Clerk | `createBrickClerkGate(appKey)` from `packages/brick-middleware`, one gate per sub-app |
 | **Database** | Neon (portfolio, collect, repair schemas) | Direct + pooled connections |
-| **Backend API** | Fly.io (brickston-backend) | FastAPI, Neon proxy, GraphQL |
+| **Backend API** | Fly.io (brickston-backend) | FastAPI, Neon access, GraphQL |
 | **GraphQL** | Fly.io | Schema defined in brickston-backend |
-| **Jobs** | GCP Cloud Run | Renovation ROI, risk scoring, market scraping |
-| **Deployment** | Vercel + Fly.io | Auto-deploy on main |
+| **Jobs** | Fly `brick-cron` (supercronic) | Valuation, PBI sync, GDM extract, briefings, insight tagging |
+| **Deployment** | Vercel + Fly.io | Vercel auto-deploys on main; Fly is a manual deploy |
 
 ## Local Development
 
@@ -51,28 +51,36 @@ npm run dev
 # Runs on http://localhost:3002
 ```
 
-**Note:** Command is a Next.js monorepo with 7 sub-apps. The `npm run dev` command starts all of them.
+**Note:** Command is an npm-workspaces monorepo. Run `npm ci` at the repo root, never inside a workspace. The root lockfile is authoritative and a stray per-app lockfile will break the Vercel build.
 
-### Sub-apps (separate ports)
+### Sub-apps
 
-- **web** (port 3002) — Main portfolio management UI
-- **leasing** (port 3201) — Leasing pipeline, vacancy
-- **collect** (port 3202) — Collections, delinquency cases
-- **repair** (port 3203) — Maintenance, work orders
-- **risk** (port 3204) — Risk scoring, alerts
-- **utilities** (port 3205) — Utility tracking, bills
-- **documents** (port 3206) — Document uploads, sharing
+None of the workspaces pin a port. Each runs `next dev`, which takes 3000 and increments, so start only the one you are working on.
+
+- **web**: Main portfolio management UI
+- **leasing**: Leasing pipeline, vacancy
+- **collect**: Collections, delinquency cases
+- **repair**: Maintenance, work orders
+- **utilities**: Utility tracking, bills
+- **documents**: Document uploads, sharing
+- **payables**: Accounts payable
+- **civic**: SF civic data surfaces
+
+Each workspace deploys to its own Vercel project with a distinct Root Directory, all from the one repo.
 
 ### Environment Variables
 
 | Variable | Required? | Purpose |
 |----------|-----------|---------|
 | `DATABASE_URL` | Yes | Neon connection (portfolio schema, command role) |
-| `DATABASE_URL_UNPOOLED` | Yes | Neon direct (no connection pooling) |
-| `NEXTAUTH_SECRET` | Yes | Session encryption |
-| `NEXTAUTH_URL` | No | Callback URL |
-| `NEXT_PUBLIC_API_URL` | Yes | Backend API base (Fly.io) |
-| `NEXT_PUBLIC_GRAPHQL_ENDPOINT` | No | GraphQL endpoint |
+| `DATABASE_URL_UNPOOLED` | Yes | Neon direct, migration tooling only |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes | Clerk publishable key. `BRICK_CLERK_PUBLISHABLE_KEY` is the fallback name |
+| `CLERK_SECRET_KEY` | Yes | Clerk secret key. `BRICK_CLERK_SECRET_KEY` is the fallback name |
+| `BRICK_CLERK_ORGANIZATION_ID` | Yes | Clerk org whose role decides app access |
+| `BRICK_AUTH_DISABLED` | No | Local dev only. Set `1` or `true` to bypass the gate |
+| `BRICKSTON_BACKEND_URL` | Yes | Backend API base (Fly.io) |
+| `BRICKSTON_SCHEDULER_SECRET` | Yes | Shared secret for scheduler and report-import calls |
+| `COMMAND_REFRESH_SECRET` | Yes | Guards `/api/refresh`, the cache-invalidation hook |
 
 Pull from Vercel:
 ```bash
@@ -89,17 +97,21 @@ Command's backend is a Python FastAPI application running on Fly.io. It provides
 
 ### Deploying Changes to Fly.io
 
+Fly builds locally, so a Docker daemon has to be running first. Docker Desktop is not installed on the operator machine; the daemon is colima.
+
 ```bash
 # After git push to main
 git push origin main
 
-# Then manually deploy (Fly.io doesn't auto-deploy like Vercel)
-cd /path/to/02-brick.apps
-flyctl deploy --app=brickston-backend
+# Bring the Docker daemon up
+colima start
 
-# Or trigger from CI/CD
-# (check .github/workflows/deploy-fly.yml)
+# Deploy from the backend directory, always from main
+cd 02-brick.command/backend
+flyctl deploy --app brickston-backend --local-only
 ```
+
+DNS warnings at the end of a deploy are local resolver noise. Check `flyctl status -a brickston-backend` for passing health checks instead.
 
 ### Viewing Fly.io Logs
 
@@ -122,9 +134,9 @@ flyctl logs --app=brickston-backend --limit=50
 1. User navigates to repair.lfiq.app
 2. User clicks "New Work Order"
 3. Form: select property, unit, issue type, urgency, assigned technician
-4. Submit → INSERT into repair.work_orders
-5. Cloud Run repair dispatcher notifies technician
-6. Technician receives assignment in mobile app (if available)
+4. Submit → INSERT into repair.wo_dispatch
+5. Dispatch event recorded in repair.dispatch_events
+6. Technician receives the assignment
 
 ### Flow 3: Delinquency Case Management
 1. User navigates to collect.lfiq.app
@@ -135,19 +147,18 @@ flyctl logs --app=brickston-backend --limit=50
 
 ## Database Schema
 
-Command uses three Neon schemas:
+Command owns three schemas in the shared `neondb` database. Cross-schema joins are valid SQL, since it is one database.
 
 **portfolio** (primary)
-- properties, units, leases, residents, valuations, rent history
-- ~50,000 rows total
+- properties, units, dim_* and fact_* tables, financials, materialized metric views
 
 **collect** (collections management)
-- delinquency_cases, resident_exclusions, payment_history
-- ~30,000 rows
+- ar_snapshot, collection_month, resident_workflow_state, resident_collection_exclusion
 
 **repair** (maintenance)
-- work_orders, technicians, dispatch_logs, cost_tracking
-- ~100,000 rows (mostly historical)
+- wo_dispatch, dispatch_events, wo_costs, wo_invoices, wo_photos, wo_surveys, technicians
+
+Command also reads `gdm.*` (Power BI Golden Data Model) and `market.*` (leasing and competitor intel) on separate pools.
 
 ## Troubleshooting
 
@@ -184,21 +195,21 @@ psql -h ep-tiny-lab-akrddwgy.us-west-2.neon.tech \
 flyctl logs --app=brickston-backend
 ```
 
-### Issue 3: "Work order not appearing in technician app"
-**Symptom:** Created work order in repair.lfiq.app but technician doesn't see it  
-**Cause:** Dispatcher job failed, technician not assigned, or mobile app not synced  
+### Issue 3: "Work order not appearing after dispatch"
+**Symptom:** Created a work order in repair.lfiq.app but it does not show as dispatched  
+**Cause:** The dispatch write failed, or no technician was assigned  
 **Fix:**
 ```bash
-# Check Cloud Run dispatcher job
-gcloud run logs read repair-dispatcher --project=brickston-v2
+# Verify the dispatch row was created
+psql "$DATABASE_URL" \
+  -c "SELECT * FROM repair.wo_dispatch WHERE created_at > now() - interval '1 hour';"
 
-# Manually re-trigger dispatcher
-gcloud run jobs execute repair-dispatcher --project=brickston-v2
+# Check the event trail
+psql "$DATABASE_URL" \
+  -c "SELECT * FROM repair.dispatch_events ORDER BY created_at DESC LIMIT 20;"
 
-# Verify work_orders record was created
-psql -h ep-tiny-lab-akrddwgy.us-west-2.neon.tech \
-  -U command neondb \
-  -c "SELECT * FROM repair.work_orders WHERE created_at > now() - interval '1 hour';"
+# Check the backend for the failed write
+flyctl logs --app brickston-backend
 ```
 
 ## Common Tasks
@@ -249,15 +260,16 @@ INSERT INTO collect.delinquency_cases (
 
 Each sub-app within Command has specialized workflows:
 
-| Sub-app | Purpose | URL (local) | Key Tables |
-|---------|---------|------------|-----------|
-| **web** | Portfolio overview | localhost:3002 | portfolio.properties, portfolio.units |
-| **leasing** | Vacancy pipeline | localhost:3201 | portfolio.leases, portfolio.move_outs |
-| **collect** | Collections | localhost:3202 | collect.delinquency_cases |
-| **repair** | Work orders | localhost:3203 | repair.work_orders |
-| **risk** | Risk scoring | localhost:3204 | (computed, not stored) |
-| **utilities** | Utility management | localhost:3205 | utilities.invoices (if applicable) |
-| **documents** | Document uploads | localhost:3206 | (file storage in Box/Drive) |
+| Sub-app | Purpose | Key Tables |
+|---------|---------|-----------|
+| **web** | Portfolio overview | portfolio.properties, portfolio.units |
+| **leasing** | Vacancy pipeline | market.listings_current, market.mosser_vacant |
+| **collect** | Collections | collect.ar_snapshot, collect.resident_workflow_state |
+| **repair** | Work orders | repair.wo_dispatch, repair.wo_costs |
+| **utilities** | Utility management | Not verified, confirm with Justin |
+| **documents** | Document index | Not verified, confirm with Justin |
+| **payables** | Accounts payable | Fed by the AP report import. Table names not verified |
+| **civic** | SF civic data | market.sf_parcels, market.sf_addresses |
 
 See each sub-app's own documentation for detailed workflows.
 
@@ -266,4 +278,5 @@ See each sub-app's own documentation for detailed workflows.
 - **Architecture:** Fly.io backend, GraphQL API, database schema
 - **Getting Started:** Setup, Logins, Install Tools
 - **Intel:** Observations feed into Command inbox
-- **Brick Fleet Review:** Deployment hygiene and CI/CD gates
+- [Fly.io Backend](/docs/fly-io-backend)
+- [Clerk Authentication](/docs/clerk-auth)

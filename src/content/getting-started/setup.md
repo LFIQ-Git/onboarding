@@ -9,10 +9,12 @@ Before starting, ensure you have:
 - **Git** (installed via Xcode Command Line Tools)
 - **GitHub CLI** (`gh` command installed)
 - **GitHub account** with access to LFIQ-Git organization
-- **Vercel account** (personal or team, linked to GitHub)
-- **Docker Desktop** (optional, for local Postgres if needed)
-- **GCP account** with access to `brickston-v2` project
+- **Vercel account** on the LFIQ team, linked to GitHub. This is where environment variables come from
+- **Clerk access**: you must be invited before you can sign in to any app
+- **colima** if you will deploy to Fly. Fly builds locally and needs a Docker daemon
 - **Fly.io account** (for viewing logs of brickston-backend)
+
+You do not need a local Postgres and you do not need a database proxy. Apps connect straight to Neon.
 
 ## Step 1: Clone & Install Dependencies
 
@@ -46,9 +48,8 @@ npm ci
 added 2000+ packages, and audited 2,345 packages in 15s
 ```
 
-## Step 2: Authenticate with GitHub & GCP
+## Step 2: Authenticate with GitHub
 
-### 2a. GitHub CLI authentication
 ```bash
 gh auth login
 # Follow prompts to authenticate
@@ -58,58 +59,19 @@ gh auth login
 gh auth status
 ```
 
-### 2b. GCP authentication
-```bash
-gcloud auth login
-# Browser will open, log in with your GCP account
-# Select project: brickston-v2
+## Step 3: Understand Where Secrets Live
 
-gcloud config set project brickston-v2
-```
+There is no local secrets directory to populate and nothing to fetch from a GCP console. Every value an app needs comes from one of three places:
 
-## Step 3: Pull Secrets from GCP
+| Surface | What lives there | How you get it |
+|---------|------------------|----------------|
+| Vercel environment | All web app configuration, including database URLs and Clerk keys | `vercel env pull` |
+| Fly app secrets | Backend and job configuration for `brickston-backend`, `brick-cron`, and the MCP apps | `flyctl secrets list` shows names, never values |
+| macOS Keychain | Local operator credentials such as the Fly deploy token | Keychain Access |
 
-Secrets are stored in GCP Secret Manager under `brickston-v2`. Create a local directory to cache them, then fetch each app's critical secrets.
+Secret **names** are safe to write down and appear throughout this manual. Values never go in a repo, a doc, or a chat message.
 
-### 3a. Create local secrets directory
-```bash
-mkdir -p ~/.pkm/secrets
-cd ~/.pkm/secrets
-```
-
-### 3b. Fetch and cache database credentials
-```bash
-# Intel Neon database URL
-gcloud secrets versions access latest --secret=intel-neon-database-url \
-  --project=brickston-v2 > intel-database-url.txt
-
-# Command database URL (direct, no connection pooling)
-gcloud secrets versions access latest --secret=command-database-url-direct \
-  --project=brickston-v2 > command-database-url-direct.txt
-
-# Items Hub database URL (for items/observations)
-gcloud secrets versions access latest --secret=items-hub-database-url \
-  --project=brickston-v2 > items-hub-database-url.txt
-
-# Verify retrieval
-cat ~/.pkm/secrets/intel-database-url.txt
-# Output should start with: postgresql://intel:...@ep-tiny-lab-akrddwgy...
-```
-
-### 3c. Fetch Clerk secrets
-```bash
-gcloud secrets versions access latest --secret=clerk-publishable-key \
-  --project=brickston-v2 > ~/.pkm/secrets/clerk-publishable-key.txt
-
-gcloud secrets versions access latest --secret=clerk-secret-key \
-  --project=brickston-v2 > ~/.pkm/secrets/clerk-secret-key.txt
-```
-
-### 3d. Fetch Anthropic API key
-```bash
-gcloud secrets versions access latest --secret=anthropic-api-key \
-  --project=brickston-v2 > ~/.pkm/secrets/anthropic-api-key.txt
-```
+`flyctl secrets list` marks a secret as "Deployed" even when its value is an empty string. The digest does not distinguish. If a secret looks set but the app behaves as if it is missing, check inside the machine with `printenv`.
 
 ## Step 4: Link Vercel & Pull Environment Variables
 
@@ -167,13 +129,17 @@ curl http://localhost:3000/api/health
 Navigate to http://localhost:3000 in your browser. You should see:
 - Hub splash page (public, no login required initially)
 - "Sign in with Google" or "Sign in with Microsoft" button
-- Clerk authentication flow (accounts.lfiq.app)
+- The hosted Clerk sign-in flow
 
 ### 5d. Test Clerk authentication
-- Click "Sign in with Google"
-- Use your Google account (if @leftfieldinv.com) or personal Google account
+- Click "Sign in with Google" or "Sign in with Microsoft". There is no password option anywhere in the fleet
+- Use a company account. Sign-up is restricted to an allowlist of company domains, so a personal account will not provision
 - After login, you should see the Hub home page with document index
 - Profile menu in top-right corner
+
+If you are signed in but see an access-denied page, you are authenticated but not authorized. A `brick_admin` has to grant your Clerk org role. See [Clerk Authentication](/docs/clerk-auth).
+
+Note that Hub's checked-in `.env.local` carries a `pk_test_` publishable key pointing at a throwaway development Clerk instance. The production `pk_live_` key exists only in the Vercel environment, which is another reason to run `vercel env pull` rather than trusting a committed file.
 
 ## Step 6: Set Up Other Apps (Repeat as Needed)
 
@@ -244,11 +210,10 @@ npm run dev
 **Cause:** Neon cold start or network connectivity  
 **Fix:**
 ```bash
-# Warm the connection
-psql -h ep-tiny-lab-akrddwgy.us-west-2.neon.tech \
-  -U intel -d neondb -c "SELECT 1;"
-# Then retry the app request
+# Neon suspends an idle endpoint. Warm it, then retry.
+psql "$DATABASE_URL" -c "SELECT 1;"
 ```
+See [Neon Debugging](/docs/neon-debugging).
 
 ### Error 4: "Cannot find module '@brick/ui'"
 **Symptom:** TypeScript error about shared UI package  
@@ -260,20 +225,15 @@ npm ci
 npm run dev
 ```
 
-### Error 5: "GCP authentication expired"
-**Symptom:** `gcloud` commands fail with "Access Denied"  
-**Cause:** GCP token expired  
-**Fix:**
-```bash
-gcloud auth login
-gcloud config set project brickston-v2
-# Re-run secret fetch
-```
+### Error 5: "gcloud commands fail with BILLING_DISABLED"
+**Symptom:** Any `gcloud scheduler` call fails, including a plain list  
+**Cause:** Expected. Billing is disabled on `brickston-v2`. The Cloud Scheduler API is dead  
+**Fix:** There is nothing to fix. Whatever you were trying to reach moved to Fly. See [GCP Cloud Run](/docs/gcp-cloud-run).
 
 ## What's Next?
 
 - Browse the **Architecture** guide to understand the 8-app family and data topology
 - Read the **Hub** guide to learn the entry point interface and chat proxy
-- Read **Intel** to understand data ingestion from 14 sources
+- Read **Intel** to understand data ingestion from the 27 registered sources
 - Read **Command** for portfolio management workflows
 - Open a pull request to verify your Git + Vercel setup end-to-end
