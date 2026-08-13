@@ -31,6 +31,12 @@ The apps deliberately bypass the Account Portal on the way in, using `<SignIn ro
 
 Some repository CLAUDE.md files describe `accounts.lfiq.app` as the shared sign-in domain. That is stale. Use `<app>.lfiq.app/login`.
 
+### One exception: risk.lfiq.app is a satellite domain
+
+`risk.lfiq.app` is a legacy alias for the Civic app. Both it and `civic.lfiq.app` are live and neither redirects to the other. It is registered with Clerk as a satellite domain, and a satellite cannot render its own sign-in or resolve a relative `/login`. So signing in from `risk.lfiq.app` sends you to the primary's absolute URL, `https://civic.lfiq.app/login`. That cross-origin hop is correct behavior, not a misconfiguration.
+
+The rule lives in `apps/civic/lib/satellite-config.ts` and is shared by both the edge middleware and the layout so the two request-time configs cannot drift.
+
 ## Sign-in methods
 
 Social only. No passwords, no passkeys, no email codes, no magic links.
