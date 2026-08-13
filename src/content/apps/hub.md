@@ -69,7 +69,7 @@ Changes to `.tsx` and `.ts` files auto-reload. No manual restart needed.
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes | n/a | Clerk publishable key. `BRICK_CLERK_PUBLISHABLE_KEY` is the fallback name |
 | `CLERK_SECRET_KEY` | Yes | n/a | Clerk secret key (server only). `BRICK_CLERK_SECRET_KEY` is the fallback name |
 | `BRICK_CLERK_ORGANIZATION_ID` | Yes | n/a | Clerk org whose role decides app access |
-| `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | No | `/sign-in` | Sign-in page path |
+| `NEXT_PUBLIC_CLERK_SIGN_IN_URL` | No | `/login` | Sign-in page path. Hub renders Clerk in place at `/login` |
 | `BRICK_AUTH_DISABLED` | No | n/a | Local dev only. Set `true` to bypass the Clerk gate |
 | `BRICKSTON_BACKEND_URL` | Yes | n/a | Backend API base (Fly `brickston-backend`) |
 | `BRICKSTON_SCHEDULER_SECRET` | Yes | n/a | Shared secret forwarded on backend proxy calls |
@@ -93,12 +93,14 @@ env | grep ANTHROPIC
 ### Flow 1: User Authentication
 1. User visits hub.lfiq.app
 2. Clerk middleware checks for session token
-3. If not authenticated, redirect to `/sign-in`
-4. User clicks "Sign in with Google" or "Sign in with Microsoft"
-5. Redirect to the hosted Clerk sign-in (exact domain not verified, confirm with Justin)
+3. If not authenticated, redirect to `/login`. Hub also redirects `/sign-in` to `/login`
+4. Clerk renders in place on that page. Hub does not hand off to the Clerk-hosted Account Portal
+5. User clicks "Sign in with Google" or "Sign in with Microsoft"
 6. OAuth provider login (Google or Microsoft)
 7. Redirect back to hub.lfiq.app with session token
 8. User lands on `/` (document index)
+
+Signing out of all sessions, or opening profile management, does route to the Clerk Account Portal at `accounts.lfiq.app`. See [Clerk Authentication](/docs/clerk-auth).
 
 ### Flow 2: Brick Chat Request
 1. User opens chat panel on right sidebar

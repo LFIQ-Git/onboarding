@@ -1,6 +1,7 @@
 import React from 'react';
 import { CodeBlock } from '@/components/content/CodeBlock';
 import { Table } from '@/components/content/Table';
+import { slugify } from '@/lib/slugify';
 
 interface MDXElementProps {
   children: React.ReactNode;
@@ -27,9 +28,12 @@ export const mdxComponents = {
       {children}
     </h1>
   ),
+  // id is derived the same way the search index derives its anchors, so search
+  // results can deep-link straight to a section.
   h2: ({ children, ...props }: MDXElementProps) => (
     <h2
-      className="text-2xl font-bold text-gray-900 dark:text-gray-50 mb-4 mt-8"
+      id={slugify(toText(children))}
+      className="text-2xl font-bold text-gray-900 dark:text-gray-50 mb-4 mt-8 scroll-mt-24"
       {...props}
     >
       {children}
@@ -37,7 +41,8 @@ export const mdxComponents = {
   ),
   h3: ({ children, ...props }: MDXElementProps) => (
     <h3
-      className="text-xl font-bold text-gray-900 dark:text-gray-50 mb-3 mt-6"
+      id={slugify(toText(children))}
+      className="text-xl font-bold text-gray-900 dark:text-gray-50 mb-3 mt-6 scroll-mt-24"
       {...props}
     >
       {children}

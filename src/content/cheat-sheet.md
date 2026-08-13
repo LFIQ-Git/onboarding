@@ -20,8 +20,8 @@ One-page quick reference for getting productive in the LFIQ stack. Complete your
 | Item | Value/Location | Notes |
 |------|--------|-------|
 | **Neon Database** | Endpoint: `ep-tiny-lab-akrddwgy.us-west-2.neon.tech` | One database, `neondb`. Schemas: portfolio, items, gdm, market, registry, stacks, collect, repair, public, semantic |
-| **Clerk Auth** | One shared instance across the BRICK apps | Social login only. Sign-in domain not verified, confirm with Justin. Sticks is the exception and runs NextAuth |
-| **GCP Project** | `brickston-v2` | Wound down. Billing disabled, Cloud Scheduler API dead |
+| **Clerk Auth** | Sign in at `https://<app>.lfiq.app/login` | Social login only, Google or Microsoft. The route is `/login`, not `/sign-in`. Sticks is the exception and runs NextAuth |
+| **GCP Projects** | `brickston-v2`, `graphic-iridium-485814-b2` | Both wound down. Billing disabled on both, so Cloud Scheduler and Cloud Run jobs cannot fire |
 | **Vercel Team** | LFIQ (`team_N2zeS1e4gX0Wljbp0aKwkzxb`) | Hub, Intel, Command and its sub-apps, Keystone, Registry, Stacks, Sticks |
 | **Fly.io** | `brickston-backend`, `brick-cron`, `brick-mcp-server`, `pkm-mcp` | Command backend, batch jobs, MCP servers |
 | **Secrets** | Vercel environment, Fly app secrets, macOS Keychain | Names only in docs. Values never in a repo |

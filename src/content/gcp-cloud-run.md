@@ -21,9 +21,11 @@ Billing was disabled on the `brickston-v2` project on 2026-08-08. Do not write n
 | Project | Purpose | Billing |
 |---------|---------|---------|
 | `brickston-v2` | BRICK fleet Cloud Run, secrets, scheduler, Vertex AI | Disabled 2026-08-08 |
-| `graphic-iridium-485814-b2` | Personal and PKM workloads, region `us-west1` | Not verified, confirm with Justin |
+| `graphic-iridium-485814-b2` | Personal and PKM workloads, region `us-west1` | Disabled, confirmed 2026-08-12 |
 
-Disabling billing on `brickston-v2` did not delete anything. It made the Cloud Scheduler API refuse every call with `PERMISSION_DENIED ... BILLING_DISABLED`, including a plain `jobs list`. The Cloud Run Admin API and Secret Manager both still respond.
+Both projects are billing-disabled. Verified on `graphic-iridium-485814-b2` by calling the Scheduler API, which refuses with `PERMISSION_DENIED ... BILLING_DISABLED`. Treat every Cloud Run job and Cloud Scheduler trigger in either project as unable to fire.
+
+Disabling billing did not delete anything. It made the Cloud Scheduler API refuse every call, including a plain `jobs list`. The Cloud Run Admin API and Secret Manager both still respond.
 
 ## What was decommissioned and where it went
 
@@ -58,11 +60,13 @@ Nine batch jobs moved to the Fly `brick-cron` dispatcher. Two were deleted outri
 | `sreo-import-job` | Moved, on demand only | Fly `brick-cron`, run manually |
 | `items-hub-causal` | Killed by design 2026-08-08 | Nothing. Its image was removed from Artifact Registry on 2026-08-06 and every run after that failed. Folded into the task-system redesign |
 | `migration-runner-job` | Parked on Cloud Run, idle since 2026-05-16 | Waiting on a schema freeze before it moves |
-| `lfi-invoice-job` | Conflicting records, see below | Fly app `lfi-invoice` exists and is live |
+| `lfi-invoice-job` | Superseded, cannot fire. Billing is disabled on its project | Fly app `lfi-invoice`, migrated 2026-07-26 |
 
 The `gdm-extractor` source still lives at `02-brick.intel/jobs/gdm-extractor/`, and its heartbeat rows in `items.source_runs` still record `trigger_env='cloud-run'` because that string was never updated after the move. The job runs on Fly. Ignore the label.
 
-`lfi-invoice-job` is the one genuine ambiguity. One record shows a Cloud Run job in `graphic-iridium-485814-b2` with successful runs on the 1st and 15th; another shows a live Fly app named `lfi-invoice` doing the same work on a scheduled machine. Confirm with Justin which one is authoritative before touching invoicing.
+`lfi-invoice-job` looks like a duplicate of the Fly app `lfi-invoice` and is worth understanding, because both send real invoices rather than drafts. It was resolved on 2026-08-12: only the Fly app can run. Billing is disabled on `graphic-iridium-485814-b2`, so the Cloud Run job and its two Cloud Scheduler triggers cannot fire. The Fly machine `lfi-invoice-cron` runs daily and the job self-gates in code to the 1st and 15th, which is why a daily schedule is correct here.
+
+The two copies are the same program. The Fly version drops the object-storage archive step and reads its Microsoft Graph refresh token from Neon rather than GCP Secret Manager. Do not reintroduce the GCP copy.
 
 ### Cloud Scheduler
 

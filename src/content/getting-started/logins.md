@@ -17,13 +17,15 @@ NextAuth and the old `@brick/auth` package were retired from the BRICK apps in t
 That is the whole list. Password, passkey and email-code sign-in are all disabled on the instance. The org is split across Google Workspace and Microsoft 365, which is why both providers exist rather than Google alone.
 
 **Login Flow:**
-1. Visit any BRICK app (hub.lfiq.app, intel.lfiq.app, etc.)
-2. Click "Sign in with Google" or "Sign in with Microsoft"
-3. Redirect to the hosted Clerk sign-in
+1. Visit any BRICK app (hub.lfiq.app, intel.lfiq.app, etc.). If you are not signed in you are redirected to that app's `/login`
+2. Clerk renders on that page. The apps do not hand off to a Clerk-hosted sign-in page
+3. Click "Sign in with Google" or "Sign in with Microsoft"
 4. Authenticate with your provider
 5. Redirect back to the app with a Clerk session cookie
 
-The exact Clerk sign-in domain is not verified. The live instance and several repo docs disagree. Confirm with Justin before publishing it anywhere.
+The route is `/login`, not `/sign-in`. Go straight to `https://<app>.lfiq.app/login` if you want to skip the redirect.
+
+You may see two Clerk domains referenced elsewhere. `clerk.lfiq.app` is the Clerk Frontend API, which is infrastructure you never open in a browser. `accounts.lfiq.app` is the Clerk Account Portal, which the apps bypass for sign-in but still use for profile management and signing out of all sessions. Full detail is on [Clerk Authentication](/docs/clerk-auth).
 
 **Troubleshooting Clerk Login:**
 - **Cannot sign up at all:** Sign-up is restricted to an allowlist of company domains. You have to be invited before your first sign-in. The allowlist gates sign-ups only, so once you exist you always sign in

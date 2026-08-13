@@ -9,11 +9,27 @@ The migration to Clerk completed 2026-06-20. NextAuth v5 and the internal `@bric
 | Item | Value |
 |------|-------|
 | Clerk instance ID | `ins_3EGuVHIbsu0gwWFLNxiPgUmI49e` |
-| Clerk frontend domain | `clerk.lfiq.app` |
+| Clerk Frontend API | `clerk.lfiq.app` |
+| Clerk Account Portal | `accounts.lfiq.app` |
 | SDK | `@clerk/nextjs` v7.4.x |
 | Sign-up mode | Restricted (invite and allowlist only) |
 
-Several repository CLAUDE.md files refer to the shared sign-in domain as `accounts.lfiq.app`. The live instance reports `clerk.lfiq.app`. Not verified which one users actually land on, confirm with Justin before putting either in customer-facing copy.
+## Where you actually sign in
+
+You sign in at `https://<app>.lfiq.app/login`. Every app renders Clerk in place on its own `/login` route rather than handing off to a Clerk-hosted page. Verified live on hub, command, intel, keystone and registry. Unauthenticated traffic is redirected there, so `https://command.lfiq.app/` returns a 307 to `https://command.lfiq.app/login`.
+
+The route is `/login`, not `/sign-in`. On Hub and Command, `/sign-in` redirects to `/login`. On Intel and Keystone it is a 404. Any doc that sends you to `/sign-in` is wrong.
+
+The two Clerk domains are easy to confuse, and neither is where you sign in:
+
+| Domain | What it is | Do you open it |
+|--------|-----------|----------------|
+| `clerk.lfiq.app` | Clerk Frontend API. Returns JSON, carries `noindex`. It is the value encoded in the publishable key. | No, it is infrastructure |
+| `accounts.lfiq.app` | Clerk Account Portal, Clerk's stock hosted pages | Not for sign-in, but see below |
+
+The apps deliberately bypass the Account Portal on the way in, using `<SignIn routing="path" path="/login">`. This is the fleet contract, documented in `packages/ui/src/components/sub-app-auth.tsx`. The portal is not dead, though. The instance still sets `user_profile_url` and `after_sign_out_all_url` to `accounts.lfiq.app`, so profile management and signing out of all sessions do land there.
+
+Some repository CLAUDE.md files describe `accounts.lfiq.app` as the shared sign-in domain. That is stale. Use `<app>.lfiq.app/login`.
 
 ## Sign-in methods
 
