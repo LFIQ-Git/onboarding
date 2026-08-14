@@ -58,7 +58,7 @@ Final task: deploy the completed onboarding manual to Vercel at `onboarding.lfiq
 
 **Outline:**
 1. "Welcome to LFIQ setup. I'll show you how to get from zero to running locally in 10 minutes."
-2. Clone the repo: `git clone https://github.com/LFIQ-Git/onboarding.git`
+2. Clone the repo: `git clone https://github.com/LFIQ-Git/shared.onboarding.git`
 3. Install Node 20 + Python 3.11: `mise install`
 4. Install dependencies: `npm ci`
 5. Pull environment variables: `vercel link` + `vercel env pull .env.local`
