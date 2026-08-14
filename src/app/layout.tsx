@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
 import localFont from 'next/font/local';
+import { Header } from '@/components/layout/Header';
+import { Footer } from '@/components/layout/Footer';
 import '@/styles/globals.css';
 
 // Self-hosted rather than pulled from next/font/google. Google Fonts is
@@ -51,7 +53,19 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${manrope.variable} font-sans antialiased`}
       >
-        {children}
+        {/*
+         * Header and Footer belong to the whole manual, not just /docs.
+         * They briefly lived in src/app/docs/layout.tsx while `/` was the
+         * Green Monster hub cover, which deliberately wore no manual
+         * chrome. With the hub removed and `/` back to being the manual's
+         * landing page, chrome scoped to /docs left the landing page with
+         * no header, footer or navigation at all.
+         */}
+        <div className="flex flex-col min-h-screen">
+          <Header />
+          <main className="flex-1 mt-16">{children}</main>
+          <Footer />
+        </div>
       </body>
     </html>
   );
