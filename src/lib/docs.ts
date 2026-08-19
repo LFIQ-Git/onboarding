@@ -19,6 +19,7 @@ export const docNav: DocSection[] = [
     items: [
       { href: '/docs/cheat-sheet', label: 'Cheat Sheet' },
       { href: '/docs/architecture', label: 'Architecture' },
+      { href: '/docs/domains', label: 'Domains' },
     ],
   },
   {
