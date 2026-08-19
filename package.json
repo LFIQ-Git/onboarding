@@ -1,7 +1,7 @@
 {
-  "name": "lfiq-onboarding",
+  "name": "shared.onboarding",
   "version": "1.0.0",
-  "description": "LFIQ tech stack onboarding manual",
+  "description": "Shared LFI portfolio onboarding manual",
   "private": true,
   "scripts": {
     "dev": "next dev",
