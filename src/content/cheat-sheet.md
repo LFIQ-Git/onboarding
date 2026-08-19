@@ -15,6 +15,8 @@ One-page quick reference for getting productive in the LFIQ stack. Complete your
 | Sticks | https://sticks.lfiq.app | Personal AI assistant |
 | Marketing Site | https://leftfieldiq.com | Product overview, investor materials |
 
+Every internal app is a subdomain of `lfiq.app`. The full list of primary domains the company owns, where each one is registered, and which ones are broken is on [Domains](/docs/domains).
+
 ## Database & Secrets
 
 | Item | Value/Location | Notes |
